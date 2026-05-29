@@ -1,0 +1,59 @@
+@import "tailwindcss";
+
+/*
+ * Parrot design tokens — adopted verbatim from Toolzy's Calendly "Sky Blueprint"
+ * design system. Light theme only in V1 (dark = backlog). See
+ * ../../docs/specs/design-system.md — this @theme block is the source of truth.
+ */
+@theme {
+  --color-midnight-indigo: #0b3558; /* primary text, headings, inactive nav */
+  --color-action-blue: #006bff; /* the ONE action color */
+  --color-glacier-blue: #004eba; /* informational badge text / alerts */
+  --color-snow-white: #ffffff; /* page bg, card surfaces */
+  --color-cloud-mist: #f8f9fb; /* off-white section bg (body bg) */
+  --color-pale-gray: #e7edf6; /* badge fills, soft separation, slider track */
+  --color-slate-blue: #476788; /* secondary text, supporting info, icon fills */
+  --color-steel-gray: #a6bbd1; /* tertiary text, disabled, fine borders */
+  --color-platinum-tint: #d4e0ed; /* inactive field borders, subtle dividers */
+  --color-outline-gray: #e6e6e6; /* separators, hairline borders */
+  --color-text-black: #0a0a0a; /* body text / default links — never pure #000 */
+  --color-success: #1a7f4b; /* success feedback */
+  --color-danger: #c2362f; /* failure feedback */
+
+  --font-gilroy: "Montserrat", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", Roboto, sans-serif;
+
+  --text-body: 14px;
+  --text-body--line-height: 1.71;
+  --text-body-lg: 16px;
+  --text-body-lg--line-height: 1.6;
+  --text-subheading: 18px;
+  --text-subheading--line-height: 1.6;
+  --text-heading: 24px;
+  --text-heading--line-height: 1.4;
+  --text-heading-lg: 28px;
+  --text-heading-lg--line-height: 1.2;
+  --text-display-sm: 38px;
+  --text-display-sm--line-height: 1.21;
+
+  --shadow-sm:
+    rgba(71, 103, 136, 0.04) 0px 4px 5px 0px, rgba(71, 103, 136, 0.03) 0px 4px 10px 0px,
+    rgba(71, 103, 136, 0.05) 0px 10px 20px 0px;
+  --shadow-sm-2:
+    rgba(71, 103, 136, 0.04) 0px 4px 5px 0px, rgba(71, 103, 136, 0.03) 0px 8px 15px 0px,
+    rgba(71, 103, 136, 0.08) 0px 30px 50px 0px;
+}
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    background: var(--color-cloud-mist);
+    color: var(--color-midnight-indigo);
+    font-family: var(--font-gilroy);
+    font-size: var(--text-body-lg);
+    line-height: 1.6;
+  }
+}

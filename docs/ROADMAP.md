@@ -27,13 +27,14 @@ Get the project legible before writing app code.
 
 Prove the architecture end-to-end with a trivial payload before any ML.
 
-- ☐ `frontend/` Svelte + SvelteKit (SPA) + Bun, "hello" screen
-- ☐ `frontend/src-tauri/` Rust shell: window opens, loads the Svelte build
-- ☐ Rust sidecar supervisor: spawn a stub Python FastAPI server, health-check `/healthz`, kill on window close, restart on crash
-- ☐ Typed IPC client in `frontend/src/lib/api/` hitting the stub
-- ☐ `scripts/smoke-test.sh` skeleton: build + launch + assert health
+- ☑ `frontend/` Svelte 5 + SvelteKit (static SPA) + Bun + Tailwind v4 (`@theme` tokens) + Montserrat, "hello" screen. Builds clean (`bun run build`).
+- ☑ `frontend/src-tauri/` Rust (Tauri v2) shell: window config loads the Svelte build. Compiles clean (`cargo check`).
+- ☑ Rust sidecar supervisor (`supervisor.rs`): spawns the Python FastAPI sidecar (`uv run`), health-checks `/healthz`, restarts on crash, kills on app exit.
+- ☑ Typed IPC client in `frontend/src/lib/api/` (`client.ts` + `health.ts` + `engine.ts`) reading `/healthz` + `/engine/status`; the hello screen renders the value.
+- ☑ Python sidecar stub (`sidecar/`): FastAPI `/healthz` → `{"status":"ok"}`, `/engine/status` → `{"active":"omnivoice","device":"cpu"}`. No ML.
+- ☑ `scripts/smoke-test.sh`: builds the frontend, boots the sidecar, asserts the IPC contract. **Passing.**
 
-**Exit:** `bun run tauri dev` opens a window that reads a value from the Python sidecar. No ML yet.
+**Exit:** verified headless — frontend builds, Rust shell + supervisor compile, the sidecar serves the contract, and the smoke test passes end to end. **Still to confirm on a real desktop session:** `bun run tauri dev` visually opening the window that reads the sidecar value (cannot be exercised in a headless environment). Placeholder app icons are copied from Toolzy — replace with Parrot branding before any release.
 
 ---
 

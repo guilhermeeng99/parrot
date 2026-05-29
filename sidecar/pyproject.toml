@@ -1,0 +1,14 @@
+[project]
+name = "parrot-sidecar"
+version = "0.0.1"
+description = "Parrot local voice engine — FastAPI sidecar (Phase 1 stub: no ML yet)"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+]
+
+# This is an application, not an installable library — uv should not try to
+# build/install it as a package.
+[tool.uv]
+package = false
