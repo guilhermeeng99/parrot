@@ -2,25 +2,37 @@
   import { onMount } from "svelte";
   import { getHealth } from "$lib/api/health";
   import { getEngineStatus, type EngineStatus } from "$lib/api/engine";
+  import { whenSidecarReady } from "$lib/api/sidecar";
 
-  let state = $state<"loading" | "ok" | "error">("loading");
+  // Named `status`, not `state` — `$state` is a Svelte 5 rune, and shadowing it
+  // with a same-named binding breaks svelte-check's type analysis.
+  let status = $state<"loading" | "ok" | "error">("loading");
   let engine = $state<EngineStatus | null>(null);
   let errorMsg = $state("");
 
   async function probe() {
-    state = "loading";
+    status = "loading";
     errorMsg = "";
     try {
       await getHealth();
       engine = await getEngineStatus();
-      state = "ok";
+      status = "ok";
     } catch (e) {
       errorMsg = e instanceof Error ? e.message : String(e);
-      state = "error";
+      status = "error";
     }
   }
 
-  onMount(probe);
+  onMount(() => {
+    // Under Tauri, wait for the supervisor's readiness signal before the first
+    // probe so we don't flash an error while the sidecar is still booting; if
+    // the supervisor gives up, show that failure. In a plain browser
+    // (`bun run dev`) there is no supervisor, so this resolves immediately.
+    whenSidecarReady().then(probe, (e: unknown) => {
+      errorMsg = e instanceof Error ? e.message : String(e);
+      status = "error";
+    });
+  });
 </script>
 
 <main class="mx-auto flex min-h-screen max-w-[1000px] flex-col items-center justify-center px-6">
@@ -33,14 +45,14 @@
       </div>
     </header>
 
-    {#if state === "loading"}
+    {#if status === "loading"}
       <div class="flex items-center gap-3 text-slate-blue">
         <span
           class="h-5 w-5 shrink-0 animate-spin rounded-full border-2 border-action-blue/30 border-t-action-blue"
         ></span>
         <span class="text-body-lg">Connecting to the engine…</span>
       </div>
-    {:else if state === "ok" && engine}
+    {:else if status === "ok" && engine}
       <div class="flex flex-col gap-2">
         <span
           class="w-fit rounded-full bg-pale-gray px-2 py-1 text-body font-semibold text-glacier-blue"

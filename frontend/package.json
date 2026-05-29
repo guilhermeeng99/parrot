@@ -8,22 +8,29 @@
     "build": "vite build",
     "preview": "vite preview",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "test": "vitest run",
     "tauri": "tauri"
   },
   "devDependencies": {
     "@sveltejs/adapter-static": "^3.0.6",
-    "@sveltejs/kit": "^2.8.0",
+    "@sveltejs/kit": "^2.61.1",
     "@sveltejs/vite-plugin-svelte": "^5.0.0",
     "@tailwindcss/vite": "^4.0.0",
     "@tauri-apps/cli": "^2.1.0",
+    "@types/node": "^25.9.1",
     "svelte": "^5.1.0",
     "svelte-check": "^4.0.0",
     "tailwindcss": "^4.0.0",
     "typescript": "^5.6.0",
-    "vite": "^6.0.0"
+    "vite": "^6.0.0",
+    "vitest": "^4.1.7"
   },
   "dependencies": {
     "@fontsource/montserrat": "^5.1.0",
     "@tauri-apps/api": "^2.1.0"
+  },
+  "//overrides": "Force the cookie fix (GHSA-pxg6-pf52-xh8x); SvelteKit still resolves cookie <0.7.0 transitively. 0.7.x is API-compatible.",
+  "overrides": {
+    "cookie": ">=0.7.0"
   }
 }
