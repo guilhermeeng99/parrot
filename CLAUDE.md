@@ -147,7 +147,7 @@ bun install                 # install deps
 bun run dev                 # Svelte dev server (localhost:3901)
 bun run build               # production build
 bun run tauri dev           # full app: shell + frontend + sidecar
-bun run tauri build         # bundle the Windows installer (msi)
+bun run tauri build         # bundle the Windows installer (NSIS .exe + msi)
 
 # Sidecar (from sidecar/)
 uv sync                     # create/refresh the Python venv
@@ -224,7 +224,7 @@ Parrot targets **Windows 10/11 (x64) only.** macOS and Linux are **out of scope*
 
 Practical consequences:
 - **Devices:** CUDA (NVIDIA) and CPU only. No MPS (Apple), no ROCm (AMD). The `device` field is exactly `{"cuda","cpu"}`.
-- **Installer:** MSI (`tauri.conf.json` `bundle.targets = ["msi"]`). No dmg/app/deb/appimage; signing is Windows code-signing only.
+- **Installer:** NSIS `.exe` + MSI (`tauri.conf.json` `bundle.targets = ["nsis","msi"]`). No dmg/app/deb/appimage; signing is Windows code-signing only.
 - **Paths/data dir:** Windows conventions (`%APPDATA%\Parrot\…`), overridable via env var. Use cross-platform Rust/Python path APIs anyway (`PathBuf`, `pathlib`) — correctness, not portability ambition.
 
 A first-run/default feature that doesn't work on Windows 10 or 11 is a **P0 bug**.

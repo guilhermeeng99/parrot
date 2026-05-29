@@ -150,7 +150,7 @@ jobs:
           releaseBody: |
             Auto-released from `main` @ ${{ github.sha }}.
 
-            Download **`Parrot_${{ steps.bump.outputs.next }}_x64_en-US.msi`** below and run it. The Python voice engine is bootstrapped on first launch — nothing else to install.
+            Download the installer for Windows x64 — the **`.exe`** (NSIS, `Parrot_${{ steps.bump.outputs.next }}_x64-setup.exe`) or the **`.msi`** — and run it. The Python voice engine is bootstrapped on first launch — nothing else to install.
 
             > **First install:** Parrot is unsigned (no Authenticode cert), so Windows SmartScreen may warn "Unrecognized app". Click **More info → Run anyway**.
             > **First run:** the one-time model download + runtime setup take a few minutes and need internet. After that, Parrot is fully local — no accounts, no cloud.

@@ -61,7 +61,7 @@ Bring over the stripped OmniVoice engine and wire the two real features.
 
 Make the MVP solid on Windows 10/11 (x64) — the only supported platform ([CLAUDE.md Platform Scope](../CLAUDE.md)).
 
-- ☑ Windows (x64): CUDA + CPU device detect (done in the sidecar), HF-cache path-length fix (`config.prepare_environment` redirects to `%LOCALAPPDATA%\Parrot\hf_cache` + disables symlinks), MSI target configured (`bundle.targets = ["msi"]`). *(Producing/validating the `.msi` needs a full `tauri build` on a Windows host with WiX — config is in place; the bundle itself isn't built headlessly here.)*
+- ☑ Windows (x64): CUDA + CPU device detect (done in the sidecar), HF-cache path-length fix (`config.prepare_environment` redirects to `%LOCALAPPDATA%\Parrot\hf_cache` + disables symlinks), NSIS `.exe` + MSI targets configured (`bundle.targets = ["nsis","msi"]`). *(Now built + published automatically: `.github/workflows/release.yml` runs CI then `tauri-action` on every push to `main`, producing the signed installers as a GitHub Release. First published: `v0.0.2`.)*
 - ☑ Sidecar packaging: `uv` declared as the only `externalBin`, sidecar source as bundle `resources`; supervisor venv bootstrap on first launch (`uv venv` + `uv sync --no-dev --extra engine`), attach-if-healthy, port takeover, log piping, retry/clean ([packaging.md](specs/packaging.md)).
 - ◐ Code-sign the MSI so release builds don't trip SmartScreen — **documented** (Authenticode OV/EV, signing notes in packaging.md); the only blocker is a signing certificate, which can't be provisioned here. SmartScreen guidance for unsigned dev builds is honest in the docs.
 

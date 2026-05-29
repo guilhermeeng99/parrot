@@ -17,7 +17,7 @@ BundleConfig (frontend/src-tauri/tauri.conf.json → "bundle")
                                                  #   com.debpalash.omnivoice-studio
   version           : SemVer, matches release tag (no leading "v"); currently 0.0.1, declared
                       in 4 manifests (see Invariants — consolidation is a TODO)
-  targets           : ["msi"]                    # Windows MSI only (no dmg/app/deb/appimage)
+  targets           : ["nsis", "msi"]            # Windows NSIS .exe + MSI (no dmg/app/deb/appimage)
   createUpdaterArtifacts : true                  # Phase-3; emits *.sig + latest.json for the updater
   externalBin       : ["binaries/uv.exe"]        # Phase-3; ffmpeg/ffprobe DROPPED (no dub/ASR path)
   resources         : ["../../sidecar/pyproject.toml",
@@ -33,8 +33,8 @@ UpdaterConfig (tauri.conf.json → "plugins.updater")
   dialog            : false                       # Svelte UI renders the update prompt, not Tauri
 
 ReleaseArtifact (uploaded to GitHub Releases per tag)
-  installer         : Parrot_<version>_x64_en-US.msi
-  updater bundle    : <installer>.zip + .sig             # signed with the minisign private key
+  installers        : Parrot_<version>_x64-setup.exe (NSIS) + Parrot_<version>_x64_en-US.msi
+  updater bundle    : <nsis-installer>.zip + .sig        # signed with the minisign private key
   latest.json       : { version, notes, pub_date, platforms{ <target-triple>{ signature, url } } }
 ```
 
@@ -53,19 +53,22 @@ ReleaseArtifact (uploaded to GitHub Releases per tag)
   client rejects it (Tauri updater enforces this; do not disable signature checks).
 ```
 
-> **Status.** `tauri.conf.json` now declares `targets: ["msi"]`, `externalBin: ["binaries/uv"]`,
+> **Status.** `tauri.conf.json` declares `targets: ["nsis", "msi"]`, `externalBin: ["binaries/uv"]`,
 > the sidecar source `resources` map, `createUpdaterArtifacts: true`, and the `plugins.updater`
-> block. Two release-gating placeholders remain (cannot be done headlessly):
-> the `uv` externalBin (`frontend/src-tauri/binaries/uv-<triple>.exe`) is the dev machine's `uv`
-> copy — re-pin a known version for release builds — and `plugins.updater.pubkey` is the literal
-> `"PLACEHOLDER_REGENERATE_BEFORE_RELEASE"`, which **must** be replaced with a freshly generated
-> minisign public key (with the private key kept as a CI secret) before any signed release.
+> block. The release is **wired and live**: `.github/workflows/release.yml` runs CI on every push
+> to `main`, then bumps + tags + builds the NSIS `.exe` + MSI via `tauri-action`, signs the updater
+> artifacts, and publishes a GitHub Release (`latest.json` for the in-app updater). The updater
+> minisign keypair has been regenerated — the real public key is in `plugins.updater.pubkey` and the
+> private key + password live in the repo secrets `TAURI_SIGNING_PRIVATE_KEY(_PASSWORD)`. The CI
+> fetches `uv.exe` fresh from astral-sh releases (it is gitignored, ~67MB). The only remaining gap is
+> **Authenticode code-signing** of the installers (needs an OV/EV cert) — until then SmartScreen warns
+> on first install (handled honestly in Edge Cases).
 
 ---
 
 ## Business Rules
 
-1. **The bundle target is the Windows MSI.** `bundle.targets` is `["msi"]` — `tauri build` on a Windows host produces a single `.msi`. There are no macOS/Linux artifacts (out of scope). The committed `tauri.conf.json` already sets `["msi"]`.
+1. **The bundle targets are the Windows NSIS `.exe` and MSI.** `bundle.targets` is `["nsis", "msi"]` — `tauri build` on a Windows host produces a `Parrot_<version>_x64-setup.exe` (NSIS) and a `Parrot_<version>_x64_en-US.msi`. There are no macOS/Linux artifacts (out of scope). The committed `tauri.conf.json` already sets `["nsis", "msi"]`.
 2. **Phase-3 target — the Python engine ships as source + a `uv` bootstrap, not as a frozen binary, by default.** The sidecar source tree (`sidecar/`), `sidecar/pyproject.toml`, and `sidecar/uv.lock` will be declared as Tauri `resources`, and the `uv.exe` binary will be the only `externalBin`. On first launch the Rust supervisor materializes a virtualenv from the bundled lockfile (see Rule 4). This is the planned default packaging mode; the PyInstaller-frozen alternative is documented below as a trade-off, not the default. *(`tauri.conf.json` now declares the `uv` `externalBin` and the sidecar-source `resources` map.)*
 3. **Model weights are downloaded on first run, never bundled.** No `.safetensors`/checkpoint files appear in any installer. The OmniVoice model (24 kHz output) is fetched from the OmniVoice model repo on Hugging Face into the HF cache on first synthesize/first-run setup, surfaced through the setup-status + SSE progress stream. This keeps the installer small and is the single biggest size lever inherited from the source (excluding model weights + CUDA wheels is what kept the installer under the 2 GB GitHub Releases asset cap).
 4. **First-launch venv bootstrap is idempotent and host-resolved.** On first run with no usable venv, the supervisor runs `uv venv` (Python 3.11+) then `uv sync --no-dev --extra engine` against the bundled `uv.lock`. `--no-dev` keeps the test-only `dev` group (pytest/httpx) out of the shipped runtime venv; `--extra engine` pulls the ML stack (the `omnivoice` model lib + torch/torchaudio/transformers/pedalboard) that lives in the `engine` optional-dependency group — kept out of the default/test sync (and this repo's CI) because it is multi-GB and the model boundary is mocked in tests. The Apache-2.0 `omnivoice` model lib is a **PyPI dependency** in the `engine` extra (pinned in `uv.lock`), imported lazily by `model_manager` via the engine adapter (`from omnivoice import OmniVoice`; see [../LICENSING.md](../LICENSING.md)). A completed venv is detected and reused on subsequent launches; the engine is only started after the venv exists and `GET /healthz` returns healthy. The install (`uv venv` + `uv sync`) and run (start → poll health) logic lives in the Rust sidecar supervisor and runs invisibly inside the Tauri process — there are no standalone `scripts/install.sh`/`scripts/run.sh` helpers. The bootstrapped venv location is stated identically in [architecture.md](./architecture.md).
