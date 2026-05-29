@@ -6,6 +6,8 @@
 
 A desktop app that clones a voice from a short reference sample and speaks any text you type — on your own machine, no accounts, no API keys, no cloud.
 
+### 🌐 [**parrot — website**](https://guilhermeeng99.github.io/parrot/)
+
 Windows
 
 </div>
@@ -30,8 +32,6 @@ The clone-and-speak MVP is built end to end — engine (FastAPI sidecar), UI (Sv
 ## Install
 
 > Signed installers aren't published yet (pre-1.0). Build from source below. When released, Parrot ships as a single Windows **MSI**; unsigned dev builds trip SmartScreen — use **More info → Run anyway** (never disable SmartScreen globally).
-
-See the [landing page](https://guilhermeeng99.github.io/parrot/) for an overview.
 
 ## Build from source
 

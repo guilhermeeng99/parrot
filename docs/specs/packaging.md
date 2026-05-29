@@ -15,8 +15,9 @@ BundleConfig (frontend/src-tauri/tauri.conf.json → "bundle")
   productName       : "Parrot"
   identifier        : "com.guilhermeeng99.parrot"  # reverse-DNS, MUST differ from OmniVoice's
                                                  #   com.debpalash.omnivoice-studio
-  version           : SemVer, matches release tag (no leading "v"); currently 0.0.5, declared
-                      in 4 manifests kept in lockstep by release.yml (see Invariants)
+  version           : SemVer, matches the release tag (no leading "v"); auto-bumped on
+                      every push to main, declared in 4 manifests kept in lockstep by
+                      release.yml (see Invariants)
   targets           : ["nsis", "msi"]            # Windows NSIS .exe + MSI (no dmg/app/deb/appimage)
   createUpdaterArtifacts : true                  # Phase-3; emits *.sig + latest.json for the updater
   externalBin       : ["binaries/uv.exe"]        # Phase-3; ffmpeg/ffprobe DROPPED (no dub/ASR path)
@@ -44,7 +45,7 @@ ReleaseArtifact (uploaded to GitHub Releases per tag)
 - identifier and updater pubkey are Parrot's own; reusing OmniVoice's would
   cross-wire updates between two apps and hijack each other's releases. The chosen
   identifier is "com.guilhermeeng99.parrot" (committed in tauri.conf.json).
-- version is currently 0.0.5, declared in 4 manifests that must stay in lockstep:
+- the version is auto-bumped on every push to main (release.yml), declared in 4 manifests that must stay in lockstep:
   sidecar/pyproject.toml, frontend/package.json, frontend/src-tauri/Cargo.toml, and
   frontend/src-tauri/tauri.conf.json. These ARE kept in lockstep by
   .github/workflows/release.yml, which bumps + commits all four together (so
@@ -180,7 +181,7 @@ ready_to_restart  → relaunch            user confirms; app restarts onto new v
 |---|---|
 | `frontend/src-tauri/tauri.conf.json` | Bundle targets, `identifier`, `version`, `externalBin`, `resources`, updater endpoint + pubkey. Primary file to repoint from OmniVoice to Parrot. |
 | `frontend/src-tauri/binaries/uv` | The only `externalBin`. Drives first-launch venv bootstrap. (`ffmpeg`/`ffprobe` removed.) |
-| `sidecar/pyproject.toml`, `sidecar/uv.lock` | Bundled as `resources`; the lockfile is the source of truth for the first-run `uv sync`. The `version` (currently 0.0.5) is declared in `sidecar/pyproject.toml`, `frontend/package.json`, `frontend/src-tauri/Cargo.toml`, and `frontend/src-tauri/tauri.conf.json` — `.github/workflows/release.yml` bumps + commits all four together to keep them in lockstep. |
+| `sidecar/pyproject.toml`, `sidecar/uv.lock` | Bundled as `resources`; the lockfile is the source of truth for the first-run `uv sync`. The `version` is declared in `sidecar/pyproject.toml`, `frontend/package.json`, `frontend/src-tauri/Cargo.toml`, and `frontend/src-tauri/tauri.conf.json` — `.github/workflows/release.yml` auto-bumps + commits all four together on every push to main to keep them in lockstep. |
 | `sidecar/` | Python FastAPI engine source, bundled as a `resource` and run from the bootstrapped venv. (Replaces OmniVoice's `backend` + `omnivoice` resource entries.) |
 | `backend.spec` (PyInstaller) | The *alternative* frozen-bundle path. Trade-off: a self-contained, no-bootstrap binary (works fully offline after install, no first-run `uv sync`) but a much larger installer, heavier code-signing surface, and the `collect_all` ML-dependency fragility documented in the spec. The default `uv`-bootstrap path keeps the installer small at the cost of a one-time online first run; PyInstaller is the option to reach for only if offline-install becomes a hard requirement. Parrot's frozen spec drops the dub/ASR/`ffmpeg` collection entirely. |
 | `latest.json` + `*.sig` (per release) | Updater manifest + minisign signatures, emitted by `createUpdaterArtifacts: true`, uploaded to Parrot's GitHub Releases. |
