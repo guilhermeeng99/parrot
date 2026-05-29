@@ -1,0 +1,50 @@
+name: Deploy site
+
+# Build the static landing/download page and publish it to GitHub Pages on every
+# push to main. Requires Pages enabled with "GitHub Actions" as the source
+# (Settings → Pages).
+
+on:
+  push:
+    branches: [main] # every push to main rebuilds + redeploys the site
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.0.8
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Build site
+        run: |
+          pnpm -C site install
+          pnpm -C site build
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site/dist
+
+      - id: deploy
+        uses: actions/deploy-pages@v4
