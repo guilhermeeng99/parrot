@@ -229,7 +229,7 @@ Parrot is licensed **Apache-2.0** (decided 2026-05-29 — "Path B", see [docs/LI
 - It reuses **only** the Apache-2.0 `omnivoice` model library. The root `NOTICE` credits it (Han Zhu / k2-fsa) as Apache-2.0 §4 requires.
 - **Do not copy OmniVoice's FSL-1.1-ALv2 app code.** Use it as a design reference and reimplement from the specs in `docs/`.
 - Don't reuse the OmniVoice name/logo.
-- **Open item:** confirm the model *weights* license before any commercial use — Apache-2.0 on the model *code* does not guarantee the *weights* are commercially licensed. See LICENSING.md.
+- **Model weights:** `k2-fsa/OmniVoice` is Apache-2.0, but the model's audio tokenizer (Higgs Audio V2, Boson AI) is under the Boson Community License — commercial use is capped at **100k annual active users** (above that needs a Boson license). Open-source release is unaffected. See [docs/LICENSING.md](docs/LICENSING.md).
 
 ---
 

@@ -17,7 +17,7 @@ Get the project legible before writing app code.
 - ☑ Write `CLAUDE.md` + `docs/` (this set)
 - ☑ **Resolve licensing path** (see [LICENSING.md](LICENSING.md)): **Path B — independent app, Apache-2.0**, reusing only the Apache-2.0 `omnivoice` model lib. No FSL code copied.
 - ☑ Add `LICENSE` (Apache-2.0) + `NOTICE` (credits the `omnivoice` model lib)
-- ☐ Confirm the model **weights** license before assuming commercial use (bounds commercial use only; does not block open-source release — see [LICENSING.md](LICENSING.md))
+- ☑ Confirm model **weights** license: `k2-fsa/OmniVoice` is Apache-2.0; the Higgs Audio V2 tokenizer (Boson AI) caps commercial use at 100k annual active users. Open-source release unaffected — see [LICENSING.md](LICENSING.md)
 
 **Exit:** every feature has a spec; license decided + files in place; repo scaffolded.
 

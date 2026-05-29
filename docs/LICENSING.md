@@ -17,11 +17,25 @@ Why Path B: a clean license story, commercial freedom, no non-compete clause, an
 - Ship a root **`NOTICE`** crediting the Apache-2.0 `omnivoice` model library (Han Zhu / k2-fsa) and preserving its license/notices, as Apache-2.0 §4 requires.
 - Do not reuse the OmniVoice name or logo (no trademark grant, and Parrot is its own brand anyway).
 
-## ⚠️ Open item — model *weights* license (independent of the above)
+## Model *weights* license chain (confirmed 2026-05-29)
 
-The license on the model **code** (`omnivoice`, Apache-2.0) is not necessarily the license on the model **weights** downloaded at first run. Weights can carry a separate license (e.g. OpenRAIL-M, CC-BY-NC) that may restrict commercial use **regardless of Apache-2.0 on the code or on Parrot**.
+The license on the model **code** is distinct from the license on the model **weights** downloaded at first run, and the default voice model pulls **two** weight components — one of which is **not** Apache-2.0:
 
-**Before relying on Parrot commercially, confirm the weights' license** on the model's Hugging Face repo (the `license` field of the *weights* repo, not just the code). If the weights are non-commercial, neither the app license nor Path B changes that — only swapping to a commercially-licensed model does. This does not block open-source release; it bounds commercial use.
+| Weight component | HF repo | License | Commercial use |
+| --- | --- | --- | --- |
+| Main OmniVoice model | `k2-fsa/OmniVoice` | **Apache-2.0** | ✅ unrestricted (plus an ethical-use disclaimer: no impersonation/fraud) |
+| Audio tokenizer (Higgs Audio V2, by Boson AI) — a **runtime dependency** of the model (`HiggsAudioV2TokenizerModel.from_pretrained`); the model cannot produce audio without it | `bosonai/higgs-audio-v2-tokenizer` (Parrot loads the `eustlb/...` mirror) | **Boson Higgs Audio 2 Community License** (derived from Meta Llama 3 Community License) — listed as "other" | ✅ **only up to 100,000 annual active users**; above that requires an expanded license from Boson AI |
+
+**What this means for Parrot:**
+
+- **Open-source release** (Parrot's Apache-2.0 code): **unaffected.** Both weight licenses permit use and redistribution.
+- **Personal / non-commercial use:** fully fine.
+- **Commercial use ≤ 100k annual active users:** allowed, with the Boson obligations below.
+- **Commercial use > 100k annual active users:** requires an expanded license from Boson AI — or swap the audio tokenizer/model for a fully-permissive alternative.
+
+**Boson obligations if Parrot ever *redistributes* the weights** (e.g. bundles them in an installer rather than downloading at first run): include the Boson + Meta Llama 3 license copies, add the attribution string *"Built with Higgs Materials licensed from Boson AI USA, Inc. … and Meta Llama 3 …"* to the `NOTICE`, and comply with Meta's Acceptable Use Policy. Parrot's default packaging **downloads weights at first run** (not bundled — see [specs/packaging.md](specs/packaging.md)), so the end user fetches them from Hugging Face under Boson's terms directly; the redistribution obligations attach only if Parrot starts bundling weights.
+
+Bottom line: **Path B + Apache-2.0 code is clean for open-source.** The only real ceiling is large-scale commercial use (>100k MAU), which is the audio tokenizer's restriction, not Parrot's — escapable later by swapping that component.
 
 ## Background — why not Path A (the fork)
 
