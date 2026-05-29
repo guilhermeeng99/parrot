@@ -268,6 +268,6 @@ Files and tables the capture flow touches. The endpoints listed under "Written b
 | Locked take | `parrot_data/voices/<id>_locked.wav` | profile lock | Always `.wav`; deleted on unlock/delete. Lock/unlock contract: voice-profiles.md. |
 | Profile row | `voice_profiles` | profile create/update/lock | One row per profile (§1). |
 | History FK | `generation_history.profile_id` | profile delete | Set NULL on delete; history rows survive. Cascade contract: voice-profiles.md. |
-| DB file | `parrot_data/<db>.sqlite` (WAL, `foreign_keys=ON`) | all of the above | Created idempotently; schema changes go through alembic with a tested upgrade path. |
+| DB file | `parrot_data/parrot.db` (WAL, `foreign_keys=ON`) | all of the above | Created idempotently; schema changes go through alembic with a tested upgrade path. |
 
 `parrot_data/` must survive app upgrades with no manual migration. Because profiles persist the **audio file** (not derived tokens) and store filenames relatively (INV-3), an existing `parrot_data/voices/` directory keeps working across engine and tokenizer updates.

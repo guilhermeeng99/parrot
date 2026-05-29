@@ -96,7 +96,7 @@ The single source of truth is the **`@theme` token block** in `frontend/src/app.
 7. **Elevation = rounded surface + diffuse slate shadow.** Cards are `rounded-2xl` (16px) with `shadow-sm-2` at rest. `shadow-sm` is the lighter interactive/hover lift. Heavy shadows are never applied to non-interactive elements.
 8. **One button primitive.** Every clickable affordance is the `Button` component with a `variant`; ad-hoc `<button>` styling is not allowed. Same rule for the form primitives (`Field`, `Select`, `Slider`) and `Dialog`/`Toast`.
 9. **Identical class strings to Toolzy.** Svelte re-implementations keep the exact Tailwind class recipes below. A diverging class string (different padding, radius, color utility) is a regression against the reference.
-10. **Single-engine assumption is visible in the design.** Parrot ships one engine (`omnivoice`), so there is **no engine picker** component and no multi-engine surface. Engine status, where shown, is a read-only `Badge`/label sourced from `GET /engine/status` → `{"active":"omnivoice","device":"<id>"}` (device ∈ {`cuda`,`mps`,`rocm`,`cpu`}). This is the only engine/device endpoint the UI reads.
+10. **Single-engine assumption is visible in the design.** Parrot ships one engine (`omnivoice`), so there is **no engine picker** component and no multi-engine surface. Engine status, where shown, is a read-only `Badge`/label sourced from `GET /engine/status` → `{"active":"omnivoice","device":"<id>"}` (device ∈ {`cuda`,`mps`,`cpu`}; ROCm hardware reports as `cuda`). This is the only engine/device endpoint the UI reads.
 
 ---
 

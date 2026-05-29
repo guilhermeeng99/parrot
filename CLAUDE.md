@@ -62,13 +62,16 @@ parrot/
 │   ├── src/                  # Svelte components, routes, stores, IPC clients
 │   └── src-tauri/            # Rust: shell, sidecar supervisor, commands, bundler config
 ├── sidecar/                  # Python FastAPI engine — Parrot's own code, built from the specs
-│   ├── api/routers/          # generate, profiles, setup, engine-status
-│   ├── core/                 # config (device detect), db, event bus
-│   ├── services/             # model_manager, tts_backend, audio_dsp
-│   └── parrot_engine/        # the OmniVoice model lib (Apache-2.0) — vendored, import name unchanged
+│   ├── main.py               # entrypoint: reads PARROT_PORT, calls uvicorn.run(create_app())
+│   └── app/
+│       ├── __init__.py       # FastAPI app factory (create_app)
+│       ├── config.py         # settings + CORS allow-list
+│       └── routers/          # health.py (GET /healthz), engine.py (GET /engine/status)
 ├── docs/                     # specs + roadmap (this is the source of truth — read before coding)
-└── scripts/                  # bootstrap (uv venv), smoke test, packaging helpers
+└── scripts/                  # smoke test (more bootstrap/packaging helpers arrive in later phases)
 ```
+
+> Phase-2 target layout: the sidecar grows into `api/routers/` (generate, profiles, setup, engine-status), `core/` (config/device-detect, db, event bus), `services/` (model_manager, tts_backend, audio_dsp), and the vendored `parrot_engine/` model lib. The tree above is the **current Phase-1** scaffold.
 
 > Naming note: the vendored model package keeps its original `omnivoice` import path (it is the Apache-2.0 model lib — see LICENSING). Only the *app* is rebranded to Parrot. Renaming the Python package is invasive churn for zero benefit.
 
@@ -144,7 +147,7 @@ bun run tauri build         # bundle installers (dmg/msi/deb/appimage)
 # Sidecar (from sidecar/)
 uv sync                     # create/refresh the Python venv
 uv run uvicorn main:app --port 3900   # run the engine standalone
-uv run pytest               # engine tests
+uv run pytest               # engine tests (Phase-1 router smoke tests; more arrive in Phase 2)
 
 # Rust (from frontend/src-tauri/)
 cargo check                 # typecheck the shell
@@ -152,7 +155,8 @@ cargo clippy                # lint (zero warnings)
 cargo test                  # shell tests
 
 # Whole-app smoke test
-bash scripts/smoke-test.sh  # wipe data, build, verify first-run + a real generation
+bash scripts/smoke-test.sh  # build frontend, sync venv, boot sidecar, assert /healthz + /engine/status
+                            # (Phase-2 target: also wipe parrot_data/ + run a real generation)
 ```
 
 ---

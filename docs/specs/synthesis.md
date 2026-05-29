@@ -125,7 +125,7 @@ Deletes one history row and its output file (path-validated; missing file ignore
 
 ### `GET /engine/status`
 
-The single engine/device endpoint. Returns `{"active":"omnivoice","device":"<id>"}` where `device` is one of `cuda`, `mps`, `rocm`, or `cpu` (an optional human label may be added as `device_label`). Parrot ships a single fixed engine — there is no engine-switch endpoint and no backends array. The synthesis loading state machine reads model/load status from this endpoint.
+The single engine/device endpoint. Returns `{"active":"omnivoice","device":"<id>"}` where `device` is one of `cuda`, `mps`, or `cpu` (ROCm hardware is supported and reports as `cuda`) (an optional human label may be added as `device_label`). Parrot ships a single fixed engine — there is no engine-switch endpoint and no backends array. The synthesis loading state machine reads model/load status from this endpoint.
 
 ### `WS /ws/tts` (optional streaming)
 
@@ -229,8 +229,8 @@ idle ──speak()──▶ submitting ──(model loading)──▶ waitingFor
 
 | Store / file | Touched by | How |
 |---|---|---|
-| `parrot_data/db.sqlite` → `generation_history` | `POST /generate` (insert), `GET/DELETE /history`, `DELETE /history/{id}` | One row inserted per success; read newest-50; deleted on clear. |
-| `parrot_data/db.sqlite` → `voice_profiles` | `POST /generate`, `WS /ws/tts` | Read-only during [resolution](#profile-resolution). |
+| `parrot_data/parrot.db` → `generation_history` | `POST /generate` (insert), `GET/DELETE /history`, `DELETE /history/{id}` | One row inserted per success; read newest-50; deleted on clear. |
+| `parrot_data/parrot.db` → `voice_profiles` | `POST /generate`, `WS /ws/tts` | Read-only during [resolution](#profile-resolution). |
 | `parrot_data/outputs/<id>.wav` | `POST /generate` (write), `DELETE /history*` (remove) | 24 kHz WAV written via the audio-IO save path; deleted when its history row is deleted. |
 | `parrot_data/voices/<file>` | `POST /generate`, `WS /ws/tts` | Read-only: resolved `ref_audio_path` / `locked_audio_path` for a profile. |
 | Temp dir | `POST /generate` (inline `ref_audio` only) | Transient `.wav`; deleted after the request. |

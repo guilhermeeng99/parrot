@@ -16,7 +16,7 @@ Related specs: [voice-profiles.md](./voice-profiles.md) · [synthesis.md](./synt
 ```
 Base URL    http://127.0.0.1:3900            (loopback only — never bound to 0.0.0.0 by default)
 WS URL      ws://127.0.0.1:3900/ws/tts       (chunked-PCM synthesis only)
-Dev origin  http://localhost:3901            (CORS-allowed; tauri://localhost also allowed)
+Dev origin  http://localhost:3901            (CORS-allowed; tauri://localhost, http://tauri.localhost, https://tauri.localhost also allowed)
 Audio out   WAV at the model's native sample rate, mono
 ```
 
@@ -59,10 +59,10 @@ Every error response from the sidecar is a FastAPI `HTTPException`, serialized a
 
 ### Typed-client mirror
 
-The client mirrors this envelope with one class and three helpers, already established in `frontend/src/lib/api/client.ts`:
+The **target** client mirrors this envelope with one class and a set of helpers. This is the Phase-2 shape the client grows into — the **current** `frontend/src/lib/api/client.ts` provides only `ApiError(path, status)` (positional, no `detail`) and `apiJson<T>()`. The fuller surface below is the spec goal, not yet present:
 
 ```ts
-// frontend/src/lib/api/client.ts
+// frontend/src/lib/api/client.ts — Phase-2 target shape
 export class ApiError extends Error {
   status?: number;
   detail?: unknown;            // the parsed `detail` string from the envelope
@@ -75,7 +75,7 @@ export class ApiError extends Error {
 // apiDelete()  → Response
 ```
 
-Rules for the typed client:
+Rules for the typed client (these govern the Phase-2 target client described above; the current Phase-1 client provides only `ApiError(path, status)` + `apiJson<T>()`):
 
 1. One module per endpoint group: `generate.ts`, `profiles.ts`, `history.ts`, `setup.ts`, `engine.ts`, `health.ts`, `settings.ts`, `ttsStream.ts`. Each re-exports through `frontend/src/lib/api/index.ts`.
 2. Request/response shapes are declared as TS interfaces in `frontend/src/lib/api/types.ts` and must match the tables below field-for-field.
@@ -279,12 +279,12 @@ Parrot ships exactly one TTS engine (`omnivoice`, pure-Python via `transformers`
 ```ts
 interface EngineStatus {
   active: 'omnivoice';                         // single fixed engine, not selectable
-  device: 'cuda' | 'mps' | 'rocm' | 'cpu';     // the resolved compute device
+  device: 'cuda' | 'mps' | 'cpu';              // the resolved compute device (ROCm hardware is supported and reports as cuda)
   device_label?: string;                       // optional human label, e.g. "cuda (RTX 4090)"
 }
 ```
 
-- `device` is one of exactly `cuda`, `mps`, `rocm`, `cpu`. How the device is resolved is owned by [device-detection.md](./device-detection.md).
+- `device` is one of exactly `cuda`, `mps`, `cpu` (ROCm hardware is supported and reports as `cuda`). How the device is resolved is owned by [device-detection.md](./device-detection.md).
 - There is **no** `backends` array — Parrot has a single fixed engine, nothing to enumerate or select.
 
 > **Parrot trim:** OmniVoice's `POST /engines/select`, the `asr`/`llm` families, translation-engine install/uninstall, effect-preset listing, and per-engine `health` spawn-ping are **all dropped**. There is no `/engine`, `/engine-status`, `/engines`, `/engines/tts`, `/system/info`, or `/system/notifications` surface. The client (`engine.ts`) exposes a single `getEngineStatus()` and no setter.

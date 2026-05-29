@@ -28,6 +28,9 @@ Thumbs.db
 .vscode/
 *.log
 
+# Claude Code session/workflow artifacts
+.claude/
+
 # Env
 .env
 .env.*

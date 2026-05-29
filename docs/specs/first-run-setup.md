@@ -99,7 +99,7 @@ All endpoints are on the sidecar at `http://127.0.0.1:3900`. Routes are unprefix
 - **Errors:** the stream itself doesn't fail download work; download failures arrive as `install_error` events on this channel. A client that disconnects mid-stream is logged server-side; no status is returned to the gone client.
 
 ### `GET /engine/status`  (read-only)
-- **Returns** `{ "active": "omnivoice", "device": "<id>" }` where `device ∈ { "cuda", "mps", "rocm", "cpu" }` (a human label may be added as `device_label`). Parrot ships exactly one fixed engine; this exists so the UI doesn't special-case a missing picker and can show the active compute device. There is no engine-selection action and no `backends` array.
+- **Returns** `{ "active": "omnivoice", "device": "<id>" }` where `device ∈ { "cuda", "mps", "cpu" }` (ROCm hardware is supported and reports as `cuda`; a human label may be added as `device_label`). Parrot ships exactly one fixed engine; this exists so the UI doesn't special-case a missing picker and can show the active compute device. There is no engine-selection action and no `backends` array.
 
 ### `GET /healthz`  (supervisor readiness probe)
 - **Returns** `{ "status": "ok" }` with `200` once the FastAPI app is serving. Used **only** by the Rust supervisor to decide the sidecar is up and to leave the boot splash. Fast, no torch import, no `device` field. It does **not** imply `models_ready` — that's a separate `/setup/status` call.

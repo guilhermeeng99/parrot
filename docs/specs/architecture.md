@@ -84,7 +84,7 @@ Three transports, each for a distinct interaction style:
 | **3900** | `127.0.0.1` | Python sidecar (REST + WS + SSE). Picked to dodge common `8000` conflicts (Django/Rails/Jupyter). | Backend `uvicorn.run(host="127.0.0.1", port=3900)`; Rust `backend_port()` defaults to `3900` and **must stay in sync**. |
 | **3901** | `localhost` | Frontend **dev server** only (`bun run dev`). Not present in packaged builds. | `devUrl` in `tauri.conf.json`. |
 
-Both ports are overridable for power users via an env var (e.g. `PARROT_PORT` on the sidecar side); the Rust supervisor reads the same override so the spawn target and the health probe never diverge. CORS on the sidecar allows the dev origin (`http://localhost:3901`, `http://127.0.0.1:3901`) and the Tauri WebView origins (`tauri://localhost`, `http://tauri.localhost`).
+Both ports are overridable for power users via an env var (e.g. `PARROT_PORT` on the sidecar side); the Rust supervisor reads the same override so the spawn target and the health probe never diverge. CORS on the sidecar allows the dev origin (`http://localhost:3901`, `http://127.0.0.1:3901`) and the Tauri WebView origins (`tauri://localhost`, `http://tauri.localhost`, `https://tauri.localhost`).
 
 ---
 
@@ -105,8 +105,10 @@ Checking
 2. **Attach-if-already-healthy.** Before spawning, probe the port. If a healthy Parrot sidecar is *already* serving `:3900`, **attach to it** (don't spawn a second one) and jump straight to `Ready`. This makes `bun run dev` against a manually-started backend work, and makes a relaunch reuse a surviving sidecar.
 3. **Port-in-use handling.** If *something* is listening on `:3900` but it is **not** a healthy Parrot sidecar (failed the health check), the supervisor **takes ownership**: it kills the orphan on that port, waits briefly, then proceeds to spawn. (See §3.5.)
 4. **Ensure the venv is ready** (first run): fetch the standalone `uv` binary, create a Python 3.11 venv at `parrot_data/.venv`, `uv sync` the locked dependencies. On every subsequent launch the venv is reused; bundle source dirs are re-synced so app updates land without a full reinstall. Detail lives in [packaging.md](./packaging.md).
-5. **StartingBackend.** Spawn `uvicorn main:app --host 127.0.0.1 --port 3900` using the venv Python, with stdout/stderr piped to rotating log files.
-6. **Poll for health** (§3.2). On success → `Ready` and the splash dismisses. On the process dying or the deadline elapsing → `Failed` with the tail of the sidecar's stderr attached for diagnostics.
+5. **StartingBackend.** Spawn the sidecar via `uv` (`uv run python main.py`, with `uv` resolved from PATH activating the bootstrapped `parrot_data/.venv`), passing the port as the `PARROT_PORT` env var; `main.py` internally calls `uvicorn.run(host="127.0.0.1", port=PARROT_PORT)`. *(Phase-3 target: stdout/stderr piped to rotating log files; the Phase-1 supervisor inherits the parent's stdio.)*
+6. **Poll for health** (§3.2). On success → `Ready` and the splash dismisses. On repeated crash-restart failures (or the deadline elapsing) → `Failed`. *(The Phase-1 supervisor emits a `sidecar-failed` event carrying the failure count after `MAX_RAPID_FAILURES`; attaching the tail of the sidecar's stderr is a Phase-3 target.)*
+
+> **Phase-1 scaffold note.** The current supervisor (`src-tauri/src/supervisor.rs`) implements a subset of this lifecycle: spawn → `/healthz` poll → restart-with-backoff (give up + `sidecar-failed` after repeated never-healthy starts) → kill-on-exit. Attach-if-already-healthy (step 2), port-in-use takeover (step 3), venv bootstrap (step 4), and log-file piping (step 5) are the Phase-2/3 target and are not yet implemented.
 
 ### 3.2 — `/healthz` polling
 
@@ -165,7 +167,7 @@ The sidecar exposes a small REST surface (full shapes in [ipc-contract.md](./ipc
 - `GET /settings/hf-token` (masked) · `POST /settings/hf-token` (set) · `DELETE /settings/hf-token` (clear). The token is optional and only needed for gated model download; resolution order is (1) the in-app encrypted setting in the `settings` table (per-install Fernet key, the default path) then (2) the `HF_TOKEN` environment variable (documented power-user override).
 
 **Engine / device status (read-only)**
-- `GET /engine/status` → `{ "active": "omnivoice", "device": "<id>" }` where `device ∈ {"cuda","mps","rocm","cpu"}` (an optional human label may appear as `"device_label"`). Parrot ships a single fixed engine; there is **no** engine picker and no `backends` array. This is the **one** place the active device is reported to the UI.
+- `GET /engine/status` → `{ "active": "omnivoice", "device": "<id>" }` where `device ∈ {"cuda","mps","cpu"}` (ROCm hardware is supported and reports as `cuda`) (an optional human label may appear as `"device_label"`). Parrot ships a single fixed engine; there is **no** engine picker and no `backends` array. This is the **one** place the active device is reported to the UI.
 
 **Health (supervisor only)**
 - `GET /healthz` → `{"status":"ok"}` — used by the Rust supervisor for liveness polling (§3.2). Not part of the UI's normal flow; carries no device field.
@@ -247,7 +249,7 @@ Data-dir location is per-OS (`~/Library/Application Support/…` on macOS, `%APP
 
 ## 8 — How Python ships invisibly
 
-The Python sidecar — interpreter, venv, and engine deps — is **not** something the user installs. The standalone `uv` binary is shipped as a Tauri **`externalBin`** alongside `ffmpeg`/`ffprobe`, and the backend source plus `pyproject.toml`/`uv.lock` ride along as bundle **resources**. On first run the supervisor uses `uv` to create a Python 3.11 venv at `parrot_data/.venv` and `uv sync` the locked dependencies into it; subsequent launches reuse it and only re-sync source on app update.
+The Python sidecar — interpreter, venv, and engine deps — is **not** something the user installs. The standalone `uv` binary is the only Tauri **`externalBin`** (Parrot has no dub/ASR path, so `ffmpeg`/`ffprobe` are dropped — see [packaging.md](./packaging.md) Rule 5), and the backend source plus `pyproject.toml`/`uv.lock` ride along as bundle **resources**. On first run the supervisor uses `uv` to create a Python 3.11 venv at `parrot_data/.venv` and `uv sync` the locked dependencies into it; subsequent launches reuse it and only re-sync source on app update.
 
 This is summarized here intentionally — full detail (externalBin layout, resource resolution, `uv` mirror/region fallbacks, build steps, signing) lives in [packaging.md](./packaging.md).
 
