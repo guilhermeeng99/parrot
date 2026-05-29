@@ -24,8 +24,8 @@ def test_engine_status_shape():
     assert res.status_code == 200
     body = res.json()
     assert body["active"] == "omnivoice"
-    # ROCm reports as "cuda"; "rocm" is never a reported value.
-    assert body["device"] in {"cuda", "mps", "cpu"}
+    # Windows-only: CUDA (NVIDIA) or CPU. No mps/rocm.
+    assert body["device"] in {"cuda", "cpu"}
 
 
 def test_port_defaults_to_3900(monkeypatch):

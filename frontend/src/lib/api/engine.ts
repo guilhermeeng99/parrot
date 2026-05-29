@@ -3,7 +3,7 @@ import { apiJson } from "./client";
 export interface EngineStatus {
   /** Always "omnivoice" — Parrot ships one fixed engine. */
   active: string;
-  /** Auto-detected compute device: cuda | mps | cpu (ROCm hardware reports as cuda). */
+  /** Auto-detected compute device: cuda | cpu (Windows; NVIDIA CUDA or CPU fallback). */
   device: string;
 }
 
