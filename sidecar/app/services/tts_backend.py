@@ -43,9 +43,22 @@ def gpu_pool() -> ThreadPoolExecutor:
     return _gpu_pool
 
 
+# Genuine out-of-memory markers only. A bare "cuda error" (illegal access,
+# device assert, driver mismatch, …) is NOT OOM and must route to the generic
+# 500 — flushing + telling the user "out of memory" there is misleading.
+_OOM_MARKERS = ("out of memory", "cuda_error_out_of_memory")
+
+
 def _looks_like_oom(e: Exception) -> bool:
+    try:
+        import torch
+
+        if isinstance(e, torch.cuda.OutOfMemoryError):  # type: ignore[attr-defined]
+            return True
+    except Exception:
+        pass  # torch absent or no such attribute — fall back to message markers
     msg = str(e).lower()
-    return "out of memory" in msg or "cuda error" in msg or "oom" in msg
+    return any(marker in msg for marker in _OOM_MARKERS)
 
 
 async def run(params: dict) -> dict:

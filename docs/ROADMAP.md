@@ -6,6 +6,8 @@ The north star is unchanged at every phase: **a first run that actually works** 
 
 Legend: ☐ not started · ◐ in progress · ☑ done
 
+> **Note (2026-05-29):** the Phase 2–4 work below is committed; a deep-review fix pass was since applied to reconcile the specs with the shipped code (supervisor lifecycle, IPC contract, device-pool sizing) — the done marks remain accurate.
+
 ---
 
 ## Phase 0 — Foundation (docs + decisions)

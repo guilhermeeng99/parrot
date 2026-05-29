@@ -6,6 +6,7 @@ inference off the event loop (tts_backend) → master/DSP (audio_dsp) → write 
 needs to stream the WAV and set its `X-*` headers (synthesis.md).
 """
 
+import asyncio
 import time
 
 from ..core import paths
@@ -57,6 +58,22 @@ async def generate(params: dict) -> dict:
     }
 
     result = await tts_backend.run(infer_params)
+
+    # DSP + WAV encode + duration + the history INSERT are all blocking (numpy /
+    # soundfile / sqlite); run the whole tail off the event loop so a long write
+    # or a WAL-contended insert can't stall other requests. Only the await touches
+    # the loop.
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(
+        None, _finalize_and_persist, result, effect_preset, text, request_language, resolved
+    )
+
+
+def _finalize_and_persist(
+    result: dict, effect_preset: str, text: str, request_language: str | None, resolved: dict
+) -> dict:
+    """Blocking tail of `generate()`: master/DSP → write WAV → record history.
+    Runs in a threadpool (never on the event loop)."""
     samples = audio_dsp.process(result["samples"], result["sample_rate"], effect_preset)
 
     audio_id = new_id()
@@ -117,7 +134,12 @@ async def generate_pcm(params: dict) -> dict:
     }
     result = await tts_backend.run(infer_params)
     # WS applies only broadcast mastering + -2 dBFS normalize (no effect presets).
-    samples = audio_dsp.process(result["samples"], result["sample_rate"], "broadcast")
+    # DSP is numpy/pedalboard-bound, so run it off the loop to keep the socket
+    # responsive while the next request's start frame queues.
+    loop = asyncio.get_running_loop()
+    samples = await loop.run_in_executor(
+        None, audio_dsp.process, result["samples"], result["sample_rate"], "broadcast"
+    )
     return {
         "samples": samples,
         "sample_rate": result["sample_rate"],

@@ -1,6 +1,20 @@
 import { apiPostRaw } from "./client";
 import type { GenerateParams, GenerationResult } from "./types";
 
+/** The audio post-processing presets the engine accepts for `effect_preset`.
+ *  Lives next to the IPC contract so the Speak UI and the server agree on the
+ *  exact set (no hardcoded drift). See docs/specs/ipc-contract.md §4. */
+export const EFFECT_PRESETS = [
+  "broadcast",
+  "cinematic",
+  "podcast",
+  "warm",
+  "bright",
+  "raw",
+] as const;
+
+export type EffectPreset = (typeof EFFECT_PRESETS)[number];
+
 function toForm(params: GenerateParams): FormData {
   const fd = new FormData();
   fd.set("text", params.text);

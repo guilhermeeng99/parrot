@@ -12,6 +12,7 @@ masked form (`hf_…<last 3>`); the raw token never leaves this module except vi
 """
 
 import base64
+import hashlib
 import logging
 import os
 import time
@@ -27,8 +28,13 @@ _SALT_KEY = "_secret_key_salt"
 _TOKEN_KEY = "hf_token"
 _WHOAMI_TTL_S = 300.0
 
-# token -> (timestamp, ok, username). Invalidated on set/clear.
+# sha256(token) -> (timestamp, ok, username). Keyed by hash, never the raw token,
+# so the secret itself is never held as a dict key. Invalidated on set/clear.
 _whoami_cache: dict[str, tuple[float, bool, str | None]] = {}
+
+
+def _token_key(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
 # ---------------------------------------------------------------------------
@@ -131,12 +137,19 @@ def _login(token: str) -> None:
 
 
 def _validate_cached(token: str) -> tuple[bool, str | None]:
-    hit = _whoami_cache.get(token)
     now = time.time()
+    # Prune expired entries on access so a token-rotation churn can't grow the
+    # cache unbounded (the dict is keyed by hash, not the secret).
+    expired = [k for k, v in _whoami_cache.items() if (now - v[0]) >= _WHOAMI_TTL_S]
+    for k in expired:
+        del _whoami_cache[k]
+
+    key = _token_key(token)
+    hit = _whoami_cache.get(key)
     if hit and (now - hit[0]) < _WHOAMI_TTL_S:
         return hit[1], hit[2]
     ok, user = _whoami(token)
-    _whoami_cache[token] = (now, ok, user)
+    _whoami_cache[key] = (now, ok, user)
     return ok, user
 
 

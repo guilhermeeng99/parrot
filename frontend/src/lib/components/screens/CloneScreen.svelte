@@ -1,11 +1,12 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onDestroy, onMount } from "svelte";
   import AudioPlayer from "../AudioPlayer.svelte";
   import Recorder from "../Recorder.svelte";
   import VoiceCard from "../VoiceCard.svelte";
   import LanguageSelect from "../LanguageSelect.svelte";
   import Button from "../ui/Button.svelte";
   import Card from "../ui/Card.svelte";
+  import Dialog from "../ui/Dialog.svelte";
   import Dropzone from "../ui/Dropzone.svelte";
   import Field from "../ui/Field.svelte";
   import ModeTabs from "../ui/ModeTabs.svelte";
@@ -23,8 +24,21 @@
   let refText = $state("");
   let language = $state("Auto");
   let saving = $state(false);
+  let confirmDuplicate = $state(false);
+
+  // One reusable probe element — creating a fresh Audio() per capture (and
+  // never tearing it down) leaks a media element + decode buffer each time.
+  let probe: HTMLAudioElement | null = null;
 
   onMount(loadProfiles);
+
+  onDestroy(() => {
+    if (captured) URL.revokeObjectURL(captured.url);
+    if (probe) {
+      probe.onloadedmetadata = null;
+      probe.src = "";
+    }
+  });
 
   function setCaptured(blob: Blob, filename: string) {
     if (captured) URL.revokeObjectURL(captured.url);
@@ -33,22 +47,34 @@
   }
 
   function probeLength(url: string) {
-    const a = new Audio(url);
-    a.onloadedmetadata = () => {
-      const d = a.duration;
+    if (!probe) probe = new Audio();
+    probe.onloadedmetadata = () => {
+      const d = probe?.duration ?? 0;
       durationHint =
         d < 3
           ? "That's quite short — a 3–10s clip clones more reliably."
           : d > 20
             ? "Long clips are slower and clone less cleanly — 3–10s of clean speech is ideal."
             : "";
+      // Release the handler so a stale callback can't overwrite a newer probe.
+      if (probe) probe.onloadedmetadata = null;
     };
+    probe.src = url;
   }
 
   async function save() {
     if (!captured || !name.trim()) return;
     const dup = $profiles.profiles.some((p) => p.name === name.trim());
-    if (dup && !confirm(`You already have a voice named '${name.trim()}'. Save anyway?`)) return;
+    if (dup) {
+      confirmDuplicate = true;
+      return;
+    }
+    await persist();
+  }
+
+  async function persist() {
+    if (saving || !captured || !name.trim()) return; // guard against a double-fire
+    confirmDuplicate = false;
     saving = true;
     const ok = await createVoice({
       name: name.trim(),
@@ -141,3 +167,13 @@
     {/if}
   </Card>
 </section>
+
+<Dialog bind:open={confirmDuplicate} title="Duplicate voice name">
+  <p class="text-body-lg text-slate-blue">
+    You already have a voice named "{name.trim()}". Save anyway?
+  </p>
+  <div class="flex justify-end gap-2">
+    <Button variant="ghost" onclick={() => (confirmDuplicate = false)}>Cancel</Button>
+    <Button onclick={persist} loading={saving}>Save anyway</Button>
+  </div>
+</Dialog>

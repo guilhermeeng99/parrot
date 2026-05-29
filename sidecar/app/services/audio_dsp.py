@@ -73,7 +73,12 @@ def process(samples: np.ndarray, sample_rate: int, preset: str) -> np.ndarray:
     everything else masters, applies the chain (if pedalboard is present), then
     peak-normalizes to -2.0 dBFS."""
     validate_preset(preset)
-    samples = np.asarray(samples, dtype=np.float32)
+    # Mono (samples,) contract, shared with audio_io.save_wav / to_pcm16_bytes:
+    # the model emits a 1-D float32 waveform, and pedalboard's HighpassFilter etc.
+    # silently mis-shape a 2-D array. Flatten defensively so a stray (n,1)/(1,n)
+    # from the backend can't corrupt the chain.
+    samples = np.asarray(samples, dtype=np.float32).reshape(-1)
+    assert samples.ndim == 1
     if preset == "raw":
         return samples
 

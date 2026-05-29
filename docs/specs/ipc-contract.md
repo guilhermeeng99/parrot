@@ -149,7 +149,7 @@ A voice profile is a reusable clone (reference clip + transcript + settings). [v
 | `GET` | `/profiles/{id}` | — | `VoiceProfile` | `404` not found |
 | `PUT` | `/profiles/{id}` | json: `name?`, `ref_text?`, `instruct?`, `language?` | full updated `VoiceProfile` | `400` empty name / no editable fields; `404` not found |
 | `GET` | `/profiles/{id}/audio` | — | `audio/wav` file (locked audio if present, else reference) | `404` profile / no audio / file missing on disk |
-| `GET` | `/profiles/{id}/usage` | — | `{ synth_recent: HistoryRow[], synth_total: int }` | — |
+| `GET` | `/profiles/{id}/usage` | — | `{ synth_recent: UsageRow[], synth_total: int }` | — |
 | `POST` | `/profiles/{id}/lock` | form: `history_id`*, `seed?` | `{ locked: true, profile_id, locked_audio_path }` | `404` profile / history / source audio missing |
 | `POST` | `/profiles/{id}/unlock` | — | `{ unlocked: true, profile_id }` | `404` profile not found |
 | `DELETE` | `/profiles/{id}` | — | `{ deleted: "<id>" }` | — (idempotent) |
@@ -171,8 +171,18 @@ interface VoiceProfile {
   created_at: number;            // epoch seconds
 }
 
+// A profile's usage list returns a trimmed row, not the full HistoryRow — just
+// the fields the usage UI needs (voice-profiles.md owns this shape; D6).
+interface UsageRow {
+  id: string;                    // == X-Audio-Id of the generation
+  text: string;
+  audio_path: string;            // filename relative to the outputs dir
+  created_at: number;            // epoch seconds
+  generation_time: number;
+}
+
 interface ProfileUsage {
-  synth_recent: HistoryRow[];    // last 20 generations referencing this profile
+  synth_recent: UsageRow[];      // ≤20 most-recent generations referencing this profile (newest first)
   synth_total: number;
 }
 ```
@@ -340,6 +350,7 @@ interface WsTtsRequest {
   language?: string;
   speed?: number;                              // default 1.0
   instruct?: string;
+  seed?: number;                               // deterministic seed; falls back to the profile's stored seed
 }
 ```
 
@@ -361,13 +372,13 @@ Rules:
 2. Binary frames are PCM16 LE samples; the client must apply `sample_rate`/`channels` from the `start` frame.
 3. `voice` is resolved exactly like `/generate`'s `profile_id` (locked audio wins over reference).
 
-> Voice-design emotion/engine-override fields from OmniVoice (`emo_vector`, `emo_text`, `emo_audio`, `emo_alpha`, `description`, `engine`) are **dropped** from Parrot's `WsTtsRequest`.
+> **Parrot trim:** voice-design emotion/engine-override fields from OmniVoice (`emo_vector`, `emo_text`, `emo_audio`, `emo_alpha`, `description`, `engine`) are **dropped** from Parrot's `WsTtsRequest`. The kept fields mirror the `/generate` form subset that makes sense for live preview — `text`, `voice` (== `profile_id`), `language`, `speed`, `instruct`, `seed` — minus the file upload, DSP-preset, and advanced model knobs (the WS path applies only broadcast mastering, never an `effect_preset`).
 
 ---
 
 ## 11. Tauri (Rust) commands — native glue
 
-The browser sandbox can't open files, reveal folders, or play system audio. The Svelte UI calls these via `@tauri-apps/api/core`'s `invoke()`; clients live in `frontend/src/lib/api/native.ts`. Names below are the Parrot command set; the supervisor command is owned solely by the supervisor module (see [architecture.md](./architecture.md)).
+The browser sandbox can't open files, reveal folders, or play system audio. The Svelte UI calls these via `@tauri-apps/api/core`'s `invoke()`; clients live in `frontend/src/lib/api/native.ts`. Names below are the Parrot command set. The sidecar's *lifecycle* (spawn / health-check / teardown) is owned solely by the supervisor module and is **not** UI-callable; the UI may **observe** boot state and **request a retry** through the read-only/recovery commands in §11.1 (see [architecture.md](./architecture.md) §3, §5.1).
 
 | `invoke()` name | Args | Returns | Purpose |
 |-----------------|------|---------|---------|
@@ -376,7 +387,7 @@ The browser sandbox can't open files, reveal folders, or play system audio. The 
 | `play_audio` | `{ path: string }` | `Result<(), string>` | Play a WAV through the OS audio device. |
 | `stop_audio` | — | `void` | Stop current native playback. |
 | `get_app_paths` | — | `{ dataDir, outputsDir, voicesDir, dbPath, logPath }` | Resolve `parrot_data/` locations for the UI (e.g. "open data folder"). |
-| `read_log_tail` | `{ source: "backend" \| "tauri", tail?: number }` | `{ lines: string[], path, exists, total_lines }` | Tail a log for the Settings → Logs panel (`tail` clamped 10–2000, default 300). |
+| `read_log_tail` | `{ source: "backend" \| "tauri", tail?: number }` | `{ lines: string[], path, exists, total_lines }` | Tail a log for the Settings → Logs panel (`tail` clamped 10–2000, default 300). `"backend"` reads `backend.log` (sidecar stdout). `"tauri"` targets `parrot.log`, which is **not yet written** — no Tauri logging plugin is registered, so that source returns `exists: false` until logging is wired (see [architecture.md](./architecture.md) §7). |
 | `check_for_update` | — | `{ available: boolean, version?: string, notes?: string }` | Query the Tauri updater. |
 | `install_update` | — | `Result<(), string>` | Download + apply the pending update, then relaunch. |
 | `quit_app` | — | `void` | Set the quitting flag and exit (tears down the sidecar). |
@@ -385,7 +396,31 @@ Conventions:
 
 - Rust commands return `Result<T, String>` for fallible operations; the `Err(String)` surfaces to JS as a thrown promise rejection. The `native.ts` client wraps these in `ApiError` (with `status` unset) so the toast layer is uniform with HTTP errors.
 - Paths returned to the UI are absolute, native Windows strings. The UI treats them as opaque (passes them straight back to `reveal_in_folder` / `play_audio`).
-- The **process supervisor** command (spawn/health-check/teardown of the Python sidecar) is intentionally **not** in the UI-callable list — only the supervisor module owns the sidecar lifecycle. The UI observes liveness via `/healthz`, never by spawning.
+- `install_update` streams download progress via an **`update-progress`** Tauri event (subscribe with `@tauri-apps/api/event`'s `listen`; `native.ts` exposes `onUpdateProgress(handler)`). Payload `{ downloaded: number, total: number | null, done: boolean }` — `downloaded`/`total` are bytes (`total` is `null` when the server sent no content-length), and `done` is `true` on the terminal frame. The updater store renders a download readout from it.
+- **Spawn / health-check / teardown of the Python sidecar is intentionally NOT UI-callable** — only the supervisor module owns the sidecar lifecycle, and the UI can never start, stop, or restart the *process*. What the UI *can* do is **observe** boot state and **request a recovery retry**, through the read-only/recovery command group in §11.1. (The UI also observes engine liveness via `/healthz` over HTTP, never by spawning.)
+
+### 11.1 — Supervisor / bootstrap commands (observe + recover)
+
+The boot splash drives the bootstrap store (architecture.md §5.1) off these. They are read-only or recovery-only: none of them spawn, kill, or restart the sidecar process directly — they read latched state or *signal* the supervisor's own state machine to retry. Two Tauri **events** (`bootstrap-stage`, `bootstrap-log`) push live updates; the commands below are the pull/backfill and recovery surface.
+
+| `invoke()` name | Args | Returns | Purpose |
+|-----------------|------|---------|---------|
+| `backend_port` | — | `number` (u16) | The loopback port the sidecar is bound to (default `3900`, `PARROT_PORT` override). The UI builds its API base URL from this. |
+| `sidecar_ready` | — | `boolean` | Whether the supervisor has seen `/healthz` answer at least once. |
+| `sidecar_failed` | — | `boolean` | Whether the supervisor permanently gave up (crash-looped past `MAX_RAPID_FAILURES`). Latched, so the UI gets the terminal state even if it missed the `sidecar-failed` event. |
+| `bootstrap_status` | — | `string` | Current boot stage (`checking` → `creating_venv` → `installing_deps` → `starting_backend` → `ready` \| `failed`). Pull counterpart to the `bootstrap-stage` event. |
+| `get_bootstrap_logs` | — | `string[]` | The boot-log tail (backfill for a late-mounting splash that missed early `bootstrap-log` lines). |
+| `retry_bootstrap` | — | `void` | Reset a `failed` boot and re-run the spawn sequence (Retry action). |
+| `clean_and_retry_bootstrap` | — | `void` | Like Retry, but first wipe the bootstrapped venv + kill any stale sidecar on the port (Clean & Retry action). |
+
+**Tauri events** (supervisor → UI; subscribe via `@tauri-apps/api/event`'s `listen`):
+
+| Event | Payload | When |
+|-------|---------|------|
+| `bootstrap-stage` | `string` (the new stage) | Every stage transition. |
+| `bootstrap-log` | `string` (one log line) | Each supervisor log line (stage transitions also emit a `[stage] <name>` line). |
+| `sidecar-ready` | `number` (the port) | The first time `/healthz` answers (attach or spawn). |
+| `sidecar-failed` | `number` (failure count) | The supervisor gives up after `MAX_RAPID_FAILURES` never-healthy starts. |
 
 > **Parrot trim of native commands:** OmniVoice's dictation-shortcut (`get/set_dictation_shortcut`), tray-recording (`set_tray_recording`), pill-autostart (`enable/disable/is_pill_autostart_enabled`), `simulate_paste`, launch-as-widget, and `hf_cache_scan` commands are dropped — they belong to dictation / pill / gallery features that Parrot doesn't ship. `read_log_tail`, `quit_app`, and the dialog/playback/updater glue remain.
 

@@ -147,8 +147,8 @@ def delete_profile(profile_id: str) -> dict:
     profile = get_profile(profile_id)
     if profile is not None:
         for fname in (profile["ref_audio_path"], profile["locked_audio_path"]):
-            if fname:
-                p = paths.voices_dir() / os.path.basename(fname)
+            p = paths.safe_voice_path(fname) if fname else None
+            if p is not None:
                 p.unlink(missing_ok=True)
         with db.connection() as conn:
             conn.execute(
@@ -189,9 +189,9 @@ def lock_profile(profile_id: str, history_id: str, seed: int | None = None) -> d
 def unlock_profile(profile_id: str) -> dict:
     """Revert to the original clone (Rule 9, idempotent)."""
     profile = get_profile_or_404(profile_id)
-    locked = profile["locked_audio_path"]
-    if locked:
-        (paths.voices_dir() / os.path.basename(locked)).unlink(missing_ok=True)
+    locked = paths.safe_voice_path(profile["locked_audio_path"]) if profile["locked_audio_path"] else None
+    if locked is not None:
+        locked.unlink(missing_ok=True)
     with db.connection() as conn:
         conn.execute(
             "UPDATE voice_profiles SET locked_audio_path = '', seed = NULL, is_locked = 0 WHERE id = ?",
@@ -291,15 +291,22 @@ def resolve_for_generate(
 
     if profile["is_locked"] and profile["locked_audio_path"]:
         # Case 4: locked reference wins.
-        resolved["ref_audio_path"] = str(paths.voices_dir() / os.path.basename(profile["locked_audio_path"]))
+        resolved["ref_audio_path"] = _voice_ref(profile["locked_audio_path"])
     elif not _empty(profile["instruct"]):
         # Case 5: instruct-style path — no reference audio.
         resolved["ref_audio_path"] = None
     elif profile["ref_audio_path"]:
         # Case 6: the original clone reference.
-        resolved["ref_audio_path"] = str(paths.voices_dir() / os.path.basename(profile["ref_audio_path"]))
+        resolved["ref_audio_path"] = _voice_ref(profile["ref_audio_path"])
 
     # Case 7: a resolved profile with language "Auto" → let the model auto-detect.
     if resolved["language"] == "Auto":
         resolved["language"] = None
     return resolved
+
+
+def _voice_ref(filename: str) -> str | None:
+    """A voices-dir reference filename → absolute path the model can read, through
+    the shared traversal guard. None if the stored name fails validation."""
+    safe = paths.safe_voice_path(filename)
+    return str(safe) if safe is not None else None

@@ -85,8 +85,14 @@ pub fn run() {
             let show = MenuItem::with_id(app, "show", "Show Parrot", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit Parrot", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show, &quit])?;
-            let _tray = TrayIconBuilder::new()
-                .icon(app.default_window_icon().unwrap().clone())
+            // Build the tray with the window icon when present; if the icon is
+            // somehow unavailable, build the tray without one rather than panic on
+            // startup (a missing icon must never crash the app).
+            let mut tray_builder = TrayIconBuilder::new();
+            if let Some(icon) = app.default_window_icon() {
+                tray_builder = tray_builder.icon(icon.clone());
+            }
+            let _tray = tray_builder
                 .tooltip("Parrot")
                 .menu(&menu)
                 .on_menu_event(|app, event| match event.id.as_ref() {

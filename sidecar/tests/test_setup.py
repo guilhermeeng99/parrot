@@ -37,9 +37,28 @@ def test_download_unknown_repo_is_400(env):
 
 
 def test_download_noop_when_already_cached(env, monkeypatch):
+    """An already-cached repo must short-circuit (Rule 4): no worker/thread is
+    spawned, the repo never enters the active set, and the only side effect is an
+    immediate install_done event — proving the no-op, not just a 200-ish status."""
     monkeypatch.setattr(sm, "_scan_cached_repos", lambda: {config.DEFAULT_MODEL_REPO: 123})
+
+    spawned: list = []
+    monkeypatch.setattr(sm.threading, "Thread", lambda *a, **k: spawned.append((a, k)))
+
+    worker_calls: list = []
+    monkeypatch.setattr(sm, "_download_worker", lambda repo: worker_calls.append(repo))
+
+    events: list[dict] = []
+    monkeypatch.setattr(sm._bus, "publish", lambda e: events.append(e))
+
     res = sm.start_download(config.DEFAULT_MODEL_REPO)
+
     assert res["status"] == "download_started"
+    assert spawned == []  # no background thread
+    assert worker_calls == []  # worker never invoked
+    assert config.DEFAULT_MODEL_REPO not in sm._active  # never marked active
+    assert [e["phase"] for e in events] == ["install_done"]
+    assert events[0]["pct"] == 1.0
 
 
 def test_worker_emits_event_sequence(env, monkeypatch):

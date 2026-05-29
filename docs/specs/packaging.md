@@ -85,7 +85,7 @@ Packaging touches three runtime contracts: the supervisor health gate, the first
 
 **Supervisor → sidecar (lifecycle gate)**
 
-- `GET /healthz` — Rust supervisor readiness probe. The supervisor spawns the venv'd sidecar (`uv run` the FastAPI app on `127.0.0.1:3900`), then polls `/healthz` until healthy before the UI is allowed to call the engine. On repeated failure the supervisor tears the process down and reports a bootstrap error to the UI.
+- `GET /healthz` — Rust supervisor readiness probe. The supervisor spawns the venv'd sidecar (launches `parrot_data/.venv`'s Python directly on the FastAPI app at `127.0.0.1:3900` — not via `uv run`, so the engine is a direct child it can kill on exit), then polls `/healthz` until healthy before the UI is allowed to call the engine. On repeated failure the supervisor tears the process down and reports a bootstrap error to the UI.
   - Returns: `200 {"status":"ok"}` — liveness only, fast, no device field.
   - Error cases: connection refused (process not up yet) → keep polling within deadline; non-200 past deadline → supervisor kills + restarts once, then surfaces failure.
 

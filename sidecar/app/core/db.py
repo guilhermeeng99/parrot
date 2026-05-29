@@ -11,6 +11,7 @@ which keeps WAL writers from stepping on each other across the thread pool.
 """
 
 import sqlite3
+import threading
 from contextlib import contextmanager
 from typing import Iterator
 
@@ -18,6 +19,9 @@ from . import paths
 from .schema import CREATE_STATEMENTS
 
 _initialized = False
+# Guards the init latch: connections open across the GPU/HTTP thread pool, so the
+# first concurrent callers could otherwise run init_db() simultaneously.
+_init_lock = threading.Lock()
 
 
 def _connect() -> sqlite3.Connection:
@@ -30,16 +34,24 @@ def _connect() -> sqlite3.Connection:
 
 
 def init_db() -> None:
-    """Create the schema idempotently. Cheap to call repeatedly; runs once."""
+    """Create the schema idempotently. Cheap to call repeatedly; runs once.
+
+    Double-checked under `_init_lock` so concurrent first-use (multiple pool
+    threads hitting `connection()` at once) initializes exactly once."""
     global _initialized
-    conn = _connect()
-    try:
-        for stmt in CREATE_STATEMENTS:
-            conn.execute(stmt)
-        conn.commit()
-        _initialized = True
-    finally:
-        conn.close()
+    if _initialized:
+        return
+    with _init_lock:
+        if _initialized:
+            return
+        conn = _connect()
+        try:
+            for stmt in CREATE_STATEMENTS:
+                conn.execute(stmt)
+            conn.commit()
+            _initialized = True
+        finally:
+            conn.close()
 
 
 @contextmanager
@@ -62,4 +74,5 @@ def connection() -> Iterator[sqlite3.Connection]:
 def _reset_for_tests() -> None:
     """Test-only: forget the init latch so a fresh tmp DB re-initializes."""
     global _initialized
-    _initialized = False
+    with _init_lock:
+        _initialized = False

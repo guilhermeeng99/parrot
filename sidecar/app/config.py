@@ -73,13 +73,18 @@ def prepare_environment() -> None:
     (`%LOCALAPPDATA%\\Parrot\\hf_cache`, ~40 chars) and disable symlinks so it
     works on accounts without the symlink privilege.
 
-    Respects explicit overrides: if the user already set HF_HOME / HF_HUB_CACHE,
-    the redirect is a no-op (first-run-setup Rule 7).
+    Respects explicit overrides: if the user already set HF_HOME / HF_HUB_CACHE /
+    HUGGINGFACE_HUB_CACHE (the legacy alias), the redirect is a no-op
+    (first-run-setup Rule 7) — matching the resolution order in hf_cache_dir().
     """
     # Symlink-free cache works on filesystems/accounts without symlink rights.
     os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS", "1")
 
-    if os.environ.get("HF_HOME") or os.environ.get("HF_HUB_CACHE"):
+    if (
+        os.environ.get("HF_HOME")
+        or os.environ.get("HF_HUB_CACHE")
+        or os.environ.get("HUGGINGFACE_HUB_CACHE")
+    ):
         return  # explicit user override wins — do not redirect.
 
     if sys.platform != "win32":
@@ -96,8 +101,10 @@ def prepare_environment() -> None:
 
 def hf_cache_dir() -> str:
     """The absolute path model weights download into, resolved the same way the HF
-    library resolves it: HF_HUB_CACHE → HF_HOME/hub → ~/.cache/huggingface/hub."""
-    explicit = os.environ.get("HF_HUB_CACHE")
+    library resolves it: HF_HUB_CACHE → HUGGINGFACE_HUB_CACHE → HF_HOME/hub →
+    ~/.cache/huggingface/hub. HUGGINGFACE_HUB_CACHE is the legacy alias the HF
+    library still honors, so we mirror it to stay in sync with the real cache."""
+    explicit = os.environ.get("HF_HUB_CACHE") or os.environ.get("HUGGINGFACE_HUB_CACHE")
     if explicit:
         return str(Path(explicit))
     home = os.environ.get("HF_HOME")

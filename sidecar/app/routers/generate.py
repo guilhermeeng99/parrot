@@ -6,7 +6,9 @@ service, then stream the encoded WAV in 16 KiB chunks with the `X-*` metadata
 headers. The temp reference file is always cleaned up in `finally`.
 """
 
+import asyncio
 import os
+import shutil
 import tempfile
 from typing import AsyncIterator
 
@@ -18,6 +20,13 @@ from ..services import generate as generate_service
 router = APIRouter()
 
 _CHUNK = 16384
+
+
+def _spool_upload(src, dst_path: str) -> None:
+    """Stream the upload's spooled file to `dst_path` (blocking; runs off-loop)."""
+    src.seek(0)
+    with open(dst_path, "wb") as out:
+        shutil.copyfileobj(src, out, _CHUNK)
 
 
 def _file_chunks(path) -> AsyncIterator[bytes]:
@@ -58,8 +67,11 @@ async def generate(
     if ref_audio is not None and not profile_id:
         suffix = os.path.splitext(ref_audio.filename or "")[1] or ".wav"
         fd, tmp_path = tempfile.mkstemp(suffix=suffix, prefix="parrot_ref_")
-        with os.fdopen(fd, "wb") as f:
-            f.write(await ref_audio.read())
+        os.close(fd)  # the executor reopens by path; avoid juggling the fd off-loop
+        # The upload can be multi-MB — copy it to disk on a thread so the read+write
+        # never blocks the event loop (UploadFile.file is the spooled temp file).
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, _spool_upload, ref_audio.file, tmp_path)
 
     params = {
         "text": text,

@@ -7,7 +7,7 @@
   import "@fontsource/montserrat/600.css";
   import "@fontsource/montserrat/700.css";
 
-  import { bootstrap, initBootstrap } from "$lib/stores/bootstrap";
+  import { bootstrap, initBootstrap, retry } from "$lib/stores/bootstrap";
   import { mode } from "$lib/stores/ui";
   import { applyUpdate, checkUpdate, updater } from "$lib/stores/updater";
   import Badge from "$lib/components/ui/Badge.svelte";
@@ -40,7 +40,9 @@
     <Card class="w-full max-w-md">
       <div class="flex items-center gap-3">
         <Spinner />
-        <span class="text-body-lg text-slate-blue">Starting Parrot's engine…</span>
+        <span class="text-body-lg text-slate-blue">
+          {$bootstrap.stage ?? "Starting Parrot's engine…"}
+        </span>
       </div>
     </Card>
   </main>
@@ -49,7 +51,16 @@
     <Card class="w-full max-w-md">
       <h1 class="text-heading font-bold text-danger">Parrot's engine couldn't start.</h1>
       <p class="text-body text-slate-blue">{$bootstrap.message}</p>
-      <Button onclick={initBootstrap}>Retry</Button>
+      {#if $bootstrap.logs && $bootstrap.logs.length > 0}
+        <pre
+          class="max-h-48 overflow-auto rounded-lg bg-pale-gray p-3 text-body text-slate-blue">{$bootstrap.logs.join(
+            "\n",
+          )}</pre>
+      {/if}
+      <div class="flex gap-2">
+        <Button onclick={() => retry(false)}>Retry</Button>
+        <Button variant="outline" onclick={() => retry(true)}>Reset &amp; retry</Button>
+      </div>
     </Card>
   </main>
 {:else if !setupReady}

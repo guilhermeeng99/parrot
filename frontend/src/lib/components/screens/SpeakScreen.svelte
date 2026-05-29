@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onDestroy, onMount } from "svelte";
   import {
+    EFFECT_PRESETS,
     type GenerateParams,
     historyAudioUrl,
     inTauri,
@@ -17,6 +18,7 @@
   import VoicePicker from "../VoicePicker.svelte";
   import Button from "../ui/Button.svelte";
   import Card from "../ui/Card.svelte";
+  import Dialog from "../ui/Dialog.svelte";
   import Field from "../ui/Field.svelte";
   import Select from "../ui/Select.svelte";
   import Slider from "../ui/Slider.svelte";
@@ -30,8 +32,9 @@
   let numStep = $state(16);
   let guidance = $state(2.0);
   let effectPreset = $state("broadcast");
+  let confirmClear = $state(false);
 
-  const presets = ["broadcast", "cinematic", "podcast", "warm", "bright", "raw"].map((v) => ({
+  const presets = EFFECT_PRESETS.map((v) => ({
     value: v,
     label: v[0].toUpperCase() + v.slice(1),
   }));
@@ -40,6 +43,11 @@
     loadProfiles();
     loadHistory();
   });
+
+  // Don't leave a generation running (or its blob URL leaking) after we leave.
+  onDestroy(resetSynthesis);
+
+  const busy = $derived($synthesis.state === "submitting");
 
   $effect(() => {
     if ($preselectedProfile) {
@@ -145,12 +153,8 @@
       </div>
     {/if}
 
-    <Button
-      onclick={() => speak(params())}
-      disabled={!canSpeak}
-      loading={$synthesis.state === "submitting"}
-    >
-      {$synthesis.state === "submitting" ? "Generating…" : "Speak"}
+    <Button onclick={() => speak(params())} disabled={!canSpeak || busy} loading={busy}>
+      {busy ? "Generating…" : "Speak"}
     </Button>
   </Card>
 
@@ -160,7 +164,9 @@
       <h2 class="text-heading font-bold text-midnight-indigo">Result</h2>
       <AudioPlayer src={r.url} downloadable ondownload={download} />
       <p class="font-mono text-body text-slate-blue">
-        {r.durationSeconds}s · {r.genTime}s to generate{r.seed !== null ? ` · seed ${r.seed}` : ""}
+        {r.durationSeconds.toFixed(1)}s · {r.genTime.toFixed(1)}s to generate{r.seed !== null
+          ? ` · seed ${r.seed}`
+          : ""}
       </p>
       {#if voice}
         <Button variant="outline" size="sm" onclick={() => lock(voice, r.id, r.seed)}>
@@ -185,11 +191,7 @@
     <div class="flex items-center justify-between">
       <h2 class="text-heading font-bold text-midnight-indigo">History</h2>
       {#if $history.length > 0}
-        <Button
-          size="sm"
-          variant="ghost"
-          onclick={() => confirm("Clear all history?") && clearAll()}>Clear all</Button
-        >
+        <Button size="sm" variant="ghost" onclick={() => (confirmClear = true)}>Clear all</Button>
       {/if}
     </div>
     {#if $history.length === 0}
@@ -221,3 +223,18 @@
     {/if}
   </Card>
 </section>
+
+<Dialog open={confirmClear} title="Clear all history?" dismissable={false}>
+  <p class="text-body-lg text-slate-blue">
+    This permanently removes every generation from your history. This can't be undone.
+  </p>
+  <div class="flex justify-end gap-2">
+    <Button variant="ghost" onclick={() => (confirmClear = false)}>Cancel</Button>
+    <Button
+      onclick={() => {
+        confirmClear = false;
+        clearAll();
+      }}>Delete everything</Button
+    >
+  </div>
+</Dialog>

@@ -20,9 +20,11 @@ gpu_workers : int   (1..16)
     Lazily computed once on first model access, then cached for the
     process lifetime.
 
-cpu_workers : int   (1..8 by default)
+cpu_workers : int   (1..8 by default; 1..16 when overridden)
     Size of the CPU ThreadPoolExecutor used for non-GPU work.
-    = PARROT_CPU_POOL env override, else min(8, os.cpu_count() or 4).
+    = PARROT_CPU_POOL env override (clamped to 1..16),
+      else min(8, os.cpu_count() or 4) — so the default heuristic
+      never exceeds 8, but an explicit override can raise it to 16.
 ```
 
 Tuning constants (sidecar-internal, not user-facing):
@@ -51,7 +53,7 @@ GPU_WORKER_CAP      = 4     # hard ceiling on GPU workers regardless of VRAM
    1. `PARROT_GPU_WORKERS` env var, if set and an integer, clamped to `1..16`.
    2. CUDA: `free_workers = floor(free_VRAM_GB / 2.5)`, clamped to `1..4`. Free VRAM comes from `torch.cuda.mem_get_info()`.
    3. CPU / unknown: **1** worker.
-5. **CPU pool sizing.** The CPU ThreadPoolExecutor is sized at startup to `PARROT_CPU_POOL` (if set) else `min(8, os.cpu_count() or 4)`. This pool is independent of the GPU pool and is not resized when a GPU is present.
+5. **CPU pool sizing.** The CPU ThreadPoolExecutor is sized at startup to `PARROT_CPU_POOL` if set — clamped to `1..16` (a non-integer override is ignored with a warning and falls through to the heuristic) — else `min(8, os.cpu_count() or 4)`. So the *default heuristic* caps at 8, while an *explicit* override may raise the pool to 16. This pool is independent of the GPU pool and is not resized when a GPU is present.
 6. **Fail-safe probing.** Any exception raised while probing (`mem_get_info` failure, driver crash, missing symbol) is caught and logged; worker sizing falls back to **1** and detection falls back to `"cpu"`. A hardware probe must never propagate an exception into model loading.
 7. **Compute-capability check.** On CUDA, the sidecar compares the GPU's `sm_<major><minor>` tag against the PyTorch build's compiled arch list. A mismatch does **not** block loading — it logs a warning and still attempts the device; the failure (if any) surfaces later as a model-load error.
 8. **Lazy + cached.** `torch` is imported lazily on first device access (it is a multi-second import). Device detection and GPU-pool sizing are computed on first model access and cached, so `GET /healthz` stays instant during cold start and `GET /engine/status` answers from the cached value once detection has run.

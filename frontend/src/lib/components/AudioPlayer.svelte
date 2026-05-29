@@ -16,6 +16,18 @@
   let loading = $state(true);
   let errored = $state(false);
 
+  // A reused instance (e.g. the Result card swapping clips) must not show the
+  // previous clip's loaded/errored state. Re-arm to "loading" on every src
+  // change; onloadedmetadata/onerror will resolve it for the new source.
+  $effect(() => {
+    // Touch src so the effect re-runs when the prop changes.
+    void src;
+    loading = true;
+    errored = false;
+    current = 0;
+    duration = 0;
+  });
+
   const fill = $derived(duration > 0 ? (current / duration) * 100 : 0);
 
   function fmt(s: number): string {

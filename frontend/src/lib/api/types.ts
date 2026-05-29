@@ -127,6 +127,10 @@ export interface GenerateParams {
   layer_penalty_factor?: number | null;
   position_temperature?: number | null;
   class_temperature?: number | null;
+  // ref_audio/ref_text are intentional plumbing for a DEFERRED ad-hoc-reference
+  // UI (clone-from-scratch without first saving a profile). The /generate router
+  // and generate.ts already wire them through; the Speak screen just doesn't
+  // surface the control yet. Do NOT remove — keep the contract ready.
   /** Ad-hoc reference clip (clone-from-scratch); ignored when profile_id is set. */
   ref_audio?: Blob | null;
   ref_text?: string | null;
@@ -146,4 +150,11 @@ export interface UpdateStatus {
   available: boolean;
   version?: string;
   notes?: string;
+}
+
+/** Download progress for install_update, pushed on the `update-progress` event. */
+export interface UpdateProgress {
+  downloaded: number; // bytes received so far
+  total: number | null; // content-length, or null if the server sent none
+  done: boolean; // true on the terminal frame (download finished)
 }

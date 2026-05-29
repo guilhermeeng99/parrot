@@ -45,15 +45,19 @@ export async function openTtsStream(handlers: TtsStreamHandlers): Promise<TtsStr
       // ignore non-JSON control frames
     }
   };
-  ws.onerror = () => handlers.onError?.("The streaming connection failed.");
+  // Steady-state error handler. During the open handshake we temporarily swap
+  // in a reject()-calling handler, then restore THIS one the moment open
+  // succeeds — otherwise the open-phase handler (which calls reject) stays
+  // installed and any later transport error rejects an already-settled promise
+  // instead of routing to onError.
+  const liveErrorHandler = () => handlers.onError?.("The streaming connection failed.");
 
   await new Promise<void>((resolve, reject) => {
-    ws.onopen = () => resolve();
-    const prevErr = ws.onerror;
-    ws.onerror = (e) => {
-      reject(new Error("WebSocket failed to open"));
-      if (typeof prevErr === "function") prevErr.call(ws, e);
+    ws.onopen = () => {
+      ws.onerror = liveErrorHandler;
+      resolve();
     };
+    ws.onerror = () => reject(new Error("WebSocket failed to open"));
   });
 
   return {

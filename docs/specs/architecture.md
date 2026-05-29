@@ -90,13 +90,16 @@ Both ports are overridable for power users via an env var (e.g. `PARROT_PORT` on
 
 ## 3 — Sidecar lifecycle (owned by the Rust supervisor)
 
-The supervisor runs the sidecar through a small state machine on a dedicated thread so the UI thread is never blocked. Stages are surfaced to the splash screen via a Tauri command (`bootstrap_status`) and a `bootstrap-log` line stream the splash reads on the Tauri side (supervisor → splash only; this is not a sidecar pub-sub channel).
+The supervisor runs the sidecar through a small state machine on a dedicated thread so the UI thread is never blocked. Stages are surfaced to the splash screen via a Tauri command (`bootstrap_status`, a pull/backfill of the current stage) plus two Tauri event streams the splash subscribes to (supervisor → splash only; this is not a sidecar pub-sub channel):
+
+- **`bootstrap-stage`** — emitted on every stage transition (`checking → … → ready | failed`); the payload is the new stage string. This is the push counterpart to the `bootstrap_status` pull.
+- **`bootstrap-log`** — a per-line log stream (each stage transition also emits a `[stage] <name>` log line). Backfillable via the `get_bootstrap_logs` command so a late-mounting splash doesn't miss early lines.
 
 ### 3.1 — Startup ordering
 
 ```
 Checking
-  → (first run only) DownloadingUv → CreatingVenv → InstallingDeps
+  → (first run only) CreatingVenv → InstallingDeps
   → StartingBackend → Ready
   → Failed { message }            (on any unrecoverable error)
 ```
@@ -104,11 +107,11 @@ Checking
 1. **Checking.** Decide whether anything needs bootstrapping.
 2. **Attach-if-already-healthy.** Before spawning, probe the port. If a healthy Parrot sidecar is *already* serving `:3900`, **attach to it** (don't spawn a second one) and jump straight to `Ready`. This makes `bun run dev` against a manually-started backend work, and makes a relaunch reuse a surviving sidecar.
 3. **Port-in-use handling.** If *something* is listening on `:3900` but it is **not** a healthy Parrot sidecar (failed the health check), the supervisor **takes ownership**: it kills the orphan on that port, waits briefly, then proceeds to spawn. (See §3.5.)
-4. **Ensure the venv is ready** (first run): fetch the standalone `uv` binary, create a Python 3.11 venv at `parrot_data/.venv`, `uv sync` the locked dependencies. On every subsequent launch the venv is reused; bundle source dirs are re-synced so app updates land without a full reinstall. Detail lives in [packaging.md](./packaging.md).
-5. **StartingBackend.** Spawn the sidecar via `uv` (`uv run python main.py`, with `uv` resolved from PATH activating the bootstrapped `parrot_data/.venv`), passing the port as the `PARROT_PORT` env var; `main.py` internally calls `uvicorn.run(host="127.0.0.1", port=PARROT_PORT)`. *(Phase-3 target: stdout/stderr piped to rotating log files; the Phase-1 supervisor inherits the parent's stdio.)*
-6. **Poll for health** (§3.2). On success → `Ready` and the splash dismisses. On repeated crash-restart failures (or the deadline elapsing) → `Failed`. *(The Phase-1 supervisor emits a `sidecar-failed` event carrying the failure count after `MAX_RAPID_FAILURES`; attaching the tail of the sidecar's stderr is a Phase-3 target.)*
+4. **Ensure the venv is ready** (first run): using the **bundled** `uv` binary (shipped as the app's only `externalBin` — not downloaded at runtime), create a Python 3.11 venv at `parrot_data/.venv` and `uv sync` the locked dependencies (the venv location is pinned via `UV_PROJECT_ENVIRONMENT` so it lands under the writable data dir, never inside the read-only program-files bundle). On every subsequent launch the venv is reused; bundle source dirs are re-synced so app updates land without a full reinstall. Detail lives in [packaging.md](./packaging.md).
+5. **StartingBackend.** Spawn the sidecar by launching the bootstrapped venv's Python **directly** (`parrot_data/.venv/Scripts/python.exe main.py`) — *not* via `uv run` — so the immediate child process **is** Python and the supervisor can reliably terminate it on exit. (A `uv run` wrapper forks Python as a *grandchild* that `child.kill()` cannot reach on Windows, orphaning the GPU-holding engine.) The port is passed as the `PARROT_PORT` env var (and `PARROT_DATA_DIR` so the two processes agree on the data dir); `main.py` internally calls `uvicorn.run(host="127.0.0.1", port=PARROT_PORT)`. The child's stdout/stderr are **piped to log files** in the app log dir — `backend.log` and `backend_err.log` respectively (§7) — not inherited from the parent.
+6. **Poll for health** (§3.2). On success → `Ready` and the splash dismisses. On repeated crash-restart failures (or the deadline elapsing) → `Failed`. The supervisor emits a `sidecar-failed` event carrying the failure count once it gives up after `MAX_RAPID_FAILURES` (5) consecutive never-healthy starts. *(Attaching the tail of the sidecar's stderr to the failure event is a future refinement; the raw stderr is already on disk in `backend_err.log`.)*
 
-> **Phase-1 scaffold note.** The current supervisor (`src-tauri/src/supervisor.rs`) implements a subset of this lifecycle: spawn → `/healthz` poll → restart-with-backoff (give up + `sidecar-failed` after repeated never-healthy starts) → kill-on-exit. Attach-if-already-healthy (step 2), port-in-use takeover (step 3), venv bootstrap (step 4), and log-file piping (step 5) are the Phase-2/3 target and are not yet implemented.
+> **Supervisor state note.** The supervisor (`src-tauri/src/supervisor.rs`) implements this full lifecycle: attach-if-already-healthy (step 2), port-in-use takeover (step 3), venv bootstrap (step 4), spawn with stdout/stderr piped to log files (step 5) → `/healthz` poll → restart-with-exponential-backoff → give up + `sidecar-failed` after `MAX_RAPID_FAILURES` never-healthy starts → park in `failed` until a Retry / Clean & Retry command (§3.4) → kill-on-exit. Stages are surfaced to the splash via a `bootstrap-stage` event plus a `bootstrap-log` line stream (§3 intro, §5.1).
 
 ### 3.2 — `/healthz` polling
 
@@ -182,17 +185,17 @@ The sidecar exposes a small REST surface (full shapes in [ipc-contract.md](./ipc
 
 The UI mirrors two independent lifecycles in Svelte stores; both gate what the user can do.
 
-### 5.1 — Bootstrap store (driven by Tauri `bootstrap_status` + `bootstrap-log`)
+### 5.1 — Bootstrap store (driven by Tauri `bootstrap-stage` + `bootstrap-log`, backfilled by `bootstrap_status` + `get_bootstrap_logs`)
 
 ```
 checking
-  → downloading_uv ──► creating_venv ──► installing_deps ──► starting_backend
+  → creating_venv ──► installing_deps ──► starting_backend
   → ready            (engine healthy — leave the splash, enter the app)
   → failed{message}  (show error + Retry / Clean & Retry actions)
 ```
 
-- Transitions are **push** (the `bootstrap-log` Tauri line stream) with a **pull** backfill (`get_bootstrap_logs` on mount) so a late-mounting splash doesn't miss early lines.
-- `failed → checking` is the only user-initiated transition (Retry / Clean & Retry).
+- Transitions are **push** (the `bootstrap-stage` event drives the state; the `bootstrap-log` line stream feeds the log tail) with a **pull** backfill (`bootstrap_status` for the current stage + `get_bootstrap_logs` for the log tail on mount) so a late-mounting splash doesn't miss early stages or lines.
+- `failed → checking` is the only user-initiated transition (the `retry_bootstrap` / `clean_and_retry_bootstrap` commands behind the Retry / Clean & Retry actions).
 
 ### 5.2 — Model store (driven by the sidecar's model-status field)
 
@@ -231,7 +234,7 @@ The **Python sidecar is the sole owner** of durable state. The Rust shell and th
 | `parrot_data/outputs/` | sidecar | Generated audio (WAV, 24 kHz) |
 | `parrot_data/parrot.db` | sidecar | SQLite (WAL, `foreign_keys` ON) — `voice_profiles`, `generation_history`, `settings` |
 | `parrot_data/` settings rows | sidecar | `settings` key/value store; secrets (e.g. HF token) stored encrypted |
-| App log dir | Rust shell | `backend.log`, `backend_err.log` (sidecar stdout/stderr), Tauri logs |
+| App log dir | Rust shell | `backend.log`, `backend_err.log` (sidecar stdout/stderr piped by the supervisor). A Tauri-side `parrot.log` is *planned* but **not yet written**: no Tauri logging plugin is registered, so `read_log_tail(source: "tauri")` returns `exists: false` until logging is wired. |
 | `parrot_data/.venv` | Rust shell | Bootstrapped venv + synced backend sources (managed only by the supervisor; see [packaging.md](./packaging.md)) |
 
 Data-dir location is `%APPDATA%\Parrot\…` (overridable via env var). **`parrot_data/` must survive upgrades with no manual migration** — the DB is created idempotently and evolved via alembic with a tested upgrade path (per [../../CLAUDE.md](../../CLAUDE.md)).

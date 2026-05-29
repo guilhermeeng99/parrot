@@ -1,5 +1,5 @@
 import { writable } from "svelte/store";
-import { checkForUpdate, errMsg, inTauri, installUpdate } from "$lib/api";
+import { checkForUpdate, errMsg, inTauri, installUpdate, onUpdateProgress } from "$lib/api";
 
 // Updater store (packaging.md). Client-rendered (dialog:false). Outside Tauri
 // there is no updater, so checks resolve to up_to_date rather than nagging.
@@ -10,6 +10,8 @@ export const updater = writable<{
   version?: string;
   notes?: string;
   error?: string;
+  /** Bytes downloaded/total while state === "downloading" (from update-progress). */
+  progress?: { downloaded: number; total: number | null };
 }>({ state: "idle" });
 
 export async function checkUpdate(): Promise<void> {
@@ -32,10 +34,19 @@ export async function checkUpdate(): Promise<void> {
 }
 
 export async function applyUpdate(): Promise<void> {
-  updater.update((s) => ({ ...s, state: "downloading" }));
+  updater.update((s) => ({ ...s, state: "downloading", progress: undefined }));
+  // Render download progress from the Rust `update-progress` event while the
+  // artifact downloads (install_update is otherwise opaque until it relaunches).
+  const unlisten = await onUpdateProgress((p) => {
+    if (!p.done) {
+      updater.update((s) => ({ ...s, progress: { downloaded: p.downloaded, total: p.total } }));
+    }
+  });
   try {
     await installUpdate(); // downloads, verifies the signature, relaunches
   } catch (e) {
     updater.set({ state: "error", error: errMsg(e) });
+  } finally {
+    unlisten();
   }
 }

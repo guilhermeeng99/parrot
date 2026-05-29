@@ -142,18 +142,57 @@ def _known_repo_ids() -> set[str]:
     return {m["repo_id"] for m in config.known_models()}
 
 
+def _progress_tqdm_class(repo_id: str):
+    """A tqdm-compatible class that re-publishes HF's download progress as our
+    DownloadEvents (downloaded/total/pct populated). Returns None if tqdm isn't
+    importable, so `_run_snapshot` degrades to phase-only events."""
+    try:
+        from tqdm.auto import tqdm as _tqdm
+    except Exception:
+        return None
+
+    class _PublishingTqdm(_tqdm):  # type: ignore[misc, valid-type]
+        # HF instantiates one bar per file; we forward absolute byte counts on each
+        # update so the splash can show real progress, not just "resolving".
+        def update(self, n=1):
+            ret = super().update(n)
+            total = int(self.total or 0)
+            done = int(self.n or 0)
+            pct = round(done / total, 4) if total > 0 else 0.0
+            _bus.publish(
+                _event(
+                    repo_id,
+                    "progress",
+                    filename=str(getattr(self, "desc", "") or ""),
+                    downloaded=done,
+                    total=total,
+                    pct=pct,
+                )
+            )
+            return ret
+
+    return _PublishingTqdm
+
+
 def _run_snapshot(repo_id: str) -> None:
     """Blocking HF snapshot download (indirected for tests). Symlink-free on
-    Windows so it works without the symlink privilege (first-run-setup §7)."""
+    Windows so it works without the symlink privilege (first-run-setup §7).
+
+    Wires a publishing tqdm_class so progress flows as incremental DownloadEvents;
+    if the hook is unavailable the download still completes (phase events only)."""
     from huggingface_hub import snapshot_download
 
     from . import hf_token
 
-    snapshot_download(
-        repo_id=repo_id,
-        token=hf_token.resolve_token(),
-        local_dir_use_symlinks=False,
-    )
+    kwargs: dict = {
+        "repo_id": repo_id,
+        "token": hf_token.resolve_token(),
+        "local_dir_use_symlinks": False,
+    }
+    tqdm_cls = _progress_tqdm_class(repo_id)
+    if tqdm_cls is not None:
+        kwargs["tqdm_class"] = tqdm_cls
+    snapshot_download(**kwargs)
 
 
 def _download_worker(repo_id: str) -> None:

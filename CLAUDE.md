@@ -69,7 +69,7 @@ parrot/
 │       ├── config.py         # port/CORS + env bootstrap (Windows HF-cache fix)
 │       ├── core/             # paths, db, schema, device-detect, crypto, logging (redaction)
 │       ├── services/         # model_manager (single get_model), tts_backend, generate, audio_dsp,
-│       │                     #   audio_io, profiles, history, hf_token, setup_manager, settings_store
+│       │                     #   audio_io, profiles, history, hf_token, setup_manager, settings_store, errors
 │       ├── engine/           # vendored omnivoice backend adapter (import path unchanged)
 │       └── routers/          # health, engine, generate, profiles, history, setup, settings, ws
 ├── docs/                     # specs + roadmap (this is the source of truth — read before coding)
@@ -152,7 +152,8 @@ bun run tauri build         # bundle the Windows installer (msi)
 # Sidecar (from sidecar/)
 uv sync                     # create/refresh the Python venv
 uv run uvicorn main:app --port 3900   # run the engine standalone
-uv run pytest               # engine tests (Phase-1 router smoke tests; more arrive in Phase 2)
+uv run pytest               # full router + service suite (db, device, generate, history,
+                            #   profiles, routers, settings, setup) with the model boundary mocked
 
 # Rust (from frontend/src-tauri/)
 cargo check                 # typecheck the shell
@@ -160,8 +161,10 @@ cargo clippy                # lint (zero warnings)
 cargo test                  # shell tests
 
 # Whole-app smoke test
-bash scripts/smoke-test.sh  # build frontend, sync venv, boot sidecar, assert /healthz + /engine/status
-                            # (Phase-2 target: also wipe parrot_data/ + run a real generation)
+bash scripts/smoke-test.sh  # build frontend, sync venv, boot sidecar against a throwaway data dir,
+                            #   assert /healthz + /engine/status + /setup/status gate + a full
+                            #   profile CRUD round-trip. Only a real generation is excluded (needs
+                            #   the engine extra + downloaded weights — covered by the mocked pytest suite).
 ```
 
 ---
@@ -170,7 +173,7 @@ bash scripts/smoke-test.sh  # build frontend, sync venv, boot sidecar, assert /h
 
 After every change, before considering it done:
 
-1. **Frontend:** `bun run build` clean; `bunx tsc --noEmit` zero errors.
+1. **Frontend:** `bun run build` clean; `bun run check` (svelte-check) zero errors.
 2. **Rust:** `cargo clippy` zero warnings; `cargo test` green.
 3. **Python:** `uv run pytest` green; secrets never logged.
 4. **If the IPC contract changed:** update [docs/specs/ipc-contract.md](docs/specs/ipc-contract.md) **and** the typed client in `frontend/src/lib/api/` in the same change.

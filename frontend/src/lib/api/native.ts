@@ -4,7 +4,7 @@
 // layer is uniform with HTTP errors. See docs/specs/ipc-contract.md §11.
 
 import { ApiError, inTauri } from "./client";
-import type { AppPaths, UpdateStatus } from "./types";
+import type { AppPaths, UpdateProgress, UpdateStatus } from "./types";
 
 async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   if (!inTauri()) throw new ApiError(`invoke:${cmd}`, 0, "Native features need the desktop app.");
@@ -38,4 +38,33 @@ export const readLogTail = (source: "backend" | "tauri", tail = 300) =>
 
 export const checkForUpdate = () => invoke<UpdateStatus>("check_for_update");
 export const installUpdate = () => invoke<void>("install_update");
+
+/** Subscribe to install_update download progress (`update-progress` event).
+ *  Returns an unlisten fn; a no-op unlisten outside Tauri (the dev browser has
+ *  no updater). See docs/specs/ipc-contract.md §11. */
+export async function onUpdateProgress(
+  handler: (p: UpdateProgress) => void,
+): Promise<() => void> {
+  if (!inTauri()) return () => {};
+  const { listen } = await import("@tauri-apps/api/event");
+  return listen<UpdateProgress>("update-progress", (e) => handler(e.payload));
+}
+
 export const quitApp = () => invoke<void>("quit_app");
+
+// Boot-splash glue (ipc-contract §11). The Rust supervisor owns the venv +
+// process lifecycle; these expose its current stage + log tail and let the
+// failed-boot screen retry (optionally wiping the bootstrapped venv first).
+
+/** Current boot stage, e.g. "creating_venv" | "installing_deps" | "checking"
+ *  | "starting_backend" | "ready" | "failed". */
+export const bootstrapStatus = () => invoke<string>("bootstrap_status");
+
+/** Backfill the boot-log tail (a late-mounting splash didn't miss early lines). */
+export const getBootstrapLogs = () => invoke<string[]>("get_bootstrap_logs");
+
+/** Reset a failed boot and re-run the spawn sequence. */
+export const retryBootstrap = () => invoke<void>("retry_bootstrap");
+
+/** Like retryBootstrap, but first wipe the venv + kill any stale sidecar. */
+export const cleanAndRetryBootstrap = () => invoke<void>("clean_and_retry_bootstrap");

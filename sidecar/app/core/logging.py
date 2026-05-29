@@ -1,6 +1,6 @@
 """Logging with secret redaction.
 
-Any Hugging Face token (`hf_[A-Za-z0-9]{30,}`) is scrubbed to
+Any Hugging Face token (`hf_[A-Za-z0-9]{8,}`) is scrubbed to
 `hf_***REDACTED***` before any handler formats a record (first-run-setup §2), so
 a token never lands in `backend.log`, the splash log panel, an SSE event, or an
 error surfaced to the UI. Generic bearer-token-looking values are masked too.
@@ -12,7 +12,9 @@ path that puts an exception message on the wire route through it.
 import logging
 import re
 
-_HF_TOKEN = re.compile(r"hf_[A-Za-z0-9]{30,}")
+# {8,} (not {30,}): real HF tokens are long, but short/truncated or test tokens
+# must still be scrubbed — over-redacting a non-secret `hf_*` string is harmless.
+_HF_TOKEN = re.compile(r"hf_[A-Za-z0-9]{8,}")
 # Generic "key=value" secrets (TOKEN/KEY/SECRET/PASSWORD) — defensive cover for
 # anything that isn't an HF token but still shouldn't be logged (CLAUDE.md).
 _KV_SECRET = re.compile(

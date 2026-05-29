@@ -5,6 +5,7 @@
     errMsg,
     getProfile,
     getProfileUsage,
+    historyAudioUrl,
     profileAudioUrl,
   } from "$lib/api";
   import { editProfile, removeProfile, unlock } from "$lib/stores/profiles";
@@ -37,6 +38,9 @@
   });
 
   async function load(id: string) {
+    // Clear stale audio first so the previous profile's clip doesn't flash
+    // while this one's reference loads.
+    audioUrl = null;
     try {
       const p = await getProfile(id);
       profile = p;
@@ -99,7 +103,26 @@
     </div>
 
     {#if usage}
-      <p class="text-body text-slate-blue">Used in {usage.synth_total} generations.</p>
+      <div class="flex flex-col gap-2">
+        <p class="text-body text-slate-blue">Used in {usage.synth_total} generations.</p>
+        {#if usage.synth_recent.length > 0}
+          <ul class="flex flex-col divide-y divide-outline-gray">
+            {#each usage.synth_recent as row (row.id)}
+              <li class="flex flex-col gap-2 py-3">
+                <span class="truncate text-body-lg text-midnight-indigo" title={row.text}>
+                  {row.text}
+                </span>
+                <span class="text-body text-slate-blue">
+                  {new Date(row.created_at * 1000).toLocaleString()}
+                </span>
+                {#await historyAudioUrl(row.id) then url}
+                  <AudioPlayer src={url} />
+                {/await}
+              </li>
+            {/each}
+          </ul>
+        {/if}
+      </div>
     {/if}
 
     <div class="border-t border-outline-gray pt-4">

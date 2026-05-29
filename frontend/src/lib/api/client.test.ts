@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { __resetApiBase, ApiError, apiBase, apiJson } from "./client";
+import { __resetApiBase, ApiError, apiBase, apiFetch, apiJson, errMsg } from "./client";
 
 // Intercept the dynamic `import("@tauri-apps/api/core")` inside resolvePort().
 const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }));
@@ -62,5 +62,48 @@ describe("apiJson", () => {
       name: "ApiError",
       status: 503,
     });
+  });
+});
+
+describe("apiFetch error envelope", () => {
+  it("parses {detail} on a 400 into ApiError.detail and the message", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ detail: "bad input" }), { status: 400 })),
+    );
+    const err = await apiFetch("/generate").catch((e) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err.status).toBe(400);
+    expect(err.detail).toBe("bad input");
+    expect(err.message).toContain("bad input");
+  });
+
+  it("falls back to {error} when there is no {detail}", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ error: "engine offline" }), { status: 503 })),
+    );
+    const err = await apiFetch("/engine/status").catch((e) => e);
+    expect(err.detail).toBe("engine offline");
+  });
+
+  it("falls back to raw text when the body is not JSON", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("plain failure", { status: 500 })));
+    const err = await apiFetch("/healthz").catch((e) => e);
+    expect(err.detail).toBe("plain failure");
+  });
+});
+
+describe("errMsg", () => {
+  it("returns the ApiError detail string when present", () => {
+    expect(errMsg(new ApiError("/generate", 400, "too long"))).toBe("too long");
+  });
+
+  it("falls back to the Error message for a plain Error", () => {
+    expect(errMsg(new Error("kaboom"))).toBe("kaboom");
+  });
+
+  it("stringifies a non-Error value", () => {
+    expect(errMsg("just a string")).toBe("just a string");
   });
 });

@@ -55,16 +55,33 @@ def test_generate_no_seed_empty_header(client):
 
 
 def test_generate_oom_is_recoverable_500(client, monkeypatch):
+    from tests.conftest import FakeBackend
+
     class OOMBackend:
         sampling_rate = 24000
 
         def synthesize(self, text, **kw):
             raise RuntimeError("CUDA out of memory")
 
+    # Spy on flush so we can prove the OOM path reloads the model (synthesis.md
+    # Rule 10), then chain through to the real flush so _model is actually cleared.
+    flushed: list[bool] = []
+    real_flush = model_manager.flush
+    monkeypatch.setattr(
+        model_manager, "flush", lambda: (flushed.append(True), real_flush())[1]
+    )
+
     model_manager._set_for_tests(OOMBackend())
     res = client.post("/generate", data={"text": "boom"})
     assert res.status_code == 500
     assert "out of memory" in res.json()["detail"].lower()
+    assert flushed == [True]  # the model was flushed during OOM
+
+    # Recovery: with a healthy backend reinstalled, the next /generate succeeds.
+    model_manager._set_for_tests(FakeBackend())
+    ok = client.post("/generate", data={"text": "recovered"})
+    assert ok.status_code == 200
+    assert ok.headers["content-type"].startswith("audio/wav")
 
 
 def test_ws_streams_pcm(client):
@@ -93,5 +110,20 @@ def test_ws_missing_text_keeps_socket_open(client):
         err = ws.receive_json()
         assert err["type"] == "error"
         # socket still usable
+        ws.send_json({"text": "now valid"})
+        assert ws.receive_json()["type"] == "start"
+
+
+def test_ws_bad_typed_field_errors_and_keeps_socket_open(client):
+    """A field with the wrong type fails pydantic validation, so the request is a
+    recoverable inline {type:error} frame (not a socket-closing exception). The
+    socket must stay open for the next, valid request (conversational mode)."""
+    with client.websocket_connect("/ws/tts") as ws:
+        # `seed` is `int | None`; a non-numeric string can't coerce → ValidationError.
+        ws.send_json({"text": "typed wrong", "seed": "not-a-number"})
+        err = ws.receive_json()
+        assert err["type"] == "error"
+        assert err["detail"]  # carries the field location/message
+        # socket still usable after the validation error
         ws.send_json({"text": "now valid"})
         assert ws.receive_json()["type"] == "start"

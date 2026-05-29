@@ -9,6 +9,7 @@ any file op (no path traversal).
 import logging
 
 from ..core import db, paths
+from .errors import ServiceError
 
 log = logging.getLogger(__name__)
 
@@ -16,8 +17,6 @@ log = logging.getLogger(__name__)
 def audio_path_for(history_id: str):
     """Resolve a history row's generated WAV for playback, with distinct 404s for
     missing row / missing file. Mirrors profiles.audio_path_for."""
-    from .errors import ServiceError
-
     with db.connection() as conn:
         row = conn.execute(
             "SELECT audio_path FROM generation_history WHERE id = ?", (history_id,)

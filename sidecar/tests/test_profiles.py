@@ -56,7 +56,6 @@ def test_audio_fetch_serves_reference(client):
 def test_audio_fetch_missing_file_is_404(client, env):
     pid = make_profile(client)
     # delete the reference file out-of-band
-    (env / "parrot_data" / "voices").iterdir()
     for f in (env / "parrot_data" / "voices").iterdir():
         f.unlink()
     res = client.get(f"/profiles/{pid}/audio")
