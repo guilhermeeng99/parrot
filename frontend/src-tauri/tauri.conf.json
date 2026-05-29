@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Parrot",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "identifier": "com.guilhermeeng99.parrot",
   "build": {
     "frontendDist": "../build",
@@ -27,9 +27,13 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["msi"],
+    "targets": [
+      "msi"
+    ],
     "createUpdaterArtifacts": true,
-    "externalBin": ["binaries/uv"],
+    "externalBin": [
+      "binaries/uv"
+    ],
     "resources": {
       "../../sidecar/app": "sidecar/app",
       "../../sidecar/alembic": "sidecar/alembic",
@@ -53,7 +57,9 @@
         "https://github.com/guilhermeeng99/parrot/releases/latest/download/latest.json"
       ],
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDUyOEZGREEwNzQ5REJFMDIKUldRQ3ZwMTBvUDJQVW5sZSsxNDNkcDVVU2dMRFlES3JUQXVXWi9oQ2NFM3Z4Z0hYNGFrZjJvZHgK",
-      "windows": { "installMode": "passive" }
+      "windows": {
+        "installMode": "passive"
+      }
     }
   }
 }
