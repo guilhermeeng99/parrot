@@ -149,14 +149,55 @@ pub fn resolve_port() -> u16 {
         .unwrap_or(3900)
 }
 
-/// Directory containing the sidecar's `main.py`. `PARROT_SIDECAR_DIR` overrides
-/// the dev default (`<repo>/sidecar`, relative to this crate). In a packaged
-/// build this points at the bundled sidecar resource dir.
-fn sidecar_dir() -> PathBuf {
+/// Sidecar source dir WITHOUT the bundled-resource lookup: `PARROT_SIDECAR_DIR`
+/// override, else the in-repo dev path relative to this crate. This is the
+/// fallback `sidecar_dir` uses when there is no bundled resource (dev builds).
+fn sidecar_dir_fallback() -> PathBuf {
     if let Ok(dir) = std::env::var("PARROT_SIDECAR_DIR") {
         return PathBuf::from(dir);
     }
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../sidecar")
+}
+
+/// Directory containing the sidecar's `main.py` (+ `pyproject.toml`/`uv.lock`/
+/// `app/`). A packaged build bundles the sidecar as Tauri `resources`, so at
+/// runtime it lives under `<resource_dir>/sidecar`; we use that when its `main.py`
+/// is present. Otherwise (`PARROT_SIDECAR_DIR` override, or a `tauri dev` build
+/// with no staged resources) fall back to the repo path.
+///
+/// WHY this matters: the previous version returned the build-time
+/// `CARGO_MANIFEST_DIR/../../sidecar` path unconditionally. That path does NOT
+/// exist on an end user's machine, so `Command::current_dir()` on it made
+/// `uv venv`/`uv sync`/the python spawn fail to launch — the "engine couldn't
+/// start" first-run failure.
+fn sidecar_dir(app: &AppHandle) -> PathBuf {
+    if std::env::var("PARROT_SIDECAR_DIR").is_err() {
+        if let Ok(res) = app.path().resource_dir() {
+            let bundled = res.join("sidecar");
+            if bundled.join("main.py").exists() {
+                return bundled;
+            }
+        }
+    }
+    sidecar_dir_fallback()
+}
+
+/// Path to the `uv` executable. Tauri bundles the `externalBin` `uv` next to the
+/// app binary (the target-triple suffix is stripped at install time → `uv.exe`
+/// beside `parrot.exe`). A clean end-user machine has NO `uv` on `PATH`, so we
+/// MUST invoke that adjacent copy — `Command::new("uv")` relying on `PATH` is the
+/// other half of the "engine couldn't start" failure. Falls back to a bare `uv`
+/// (resolved on PATH) only for dev (`tauri dev`/`cargo run`), where the
+/// externalBin may not be staged beside the binary.
+fn uv_bin() -> PathBuf {
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(adjacent) = exe.parent().map(|d| d.join("uv.exe")) {
+            if adjacent.exists() {
+                return adjacent;
+            }
+        }
+    }
+    PathBuf::from("uv")
 }
 
 /// The durable data dir the sidecar owns (`parrot_data/`). Honors a
@@ -415,7 +456,7 @@ fn ensure_venv(app: &AppHandle, state: &SidecarState) -> bool {
     // A partial venv (python.exe present, sentinel missing) is an interrupted
     // prior install — re-run `uv sync` over it rather than booting a torch-less
     // env. `uv` is idempotent, so re-running `uv venv` over an existing one is safe.
-    let project = sidecar_dir();
+    let project = sidecar_dir(app);
     let venv = venv_dir(app);
 
     if run_uv_venv(app, state, &project, &venv) == UvStep::ShutdownRequested {
@@ -449,7 +490,7 @@ enum UvStep {
 fn run_uv_venv(app: &AppHandle, state: &SidecarState, project: &PathBuf, venv: &PathBuf) -> UvStep {
     state.set_stage(app, "creating_venv");
     let spawned = no_window(
-        Command::new("uv")
+        Command::new(uv_bin())
             .arg("venv")
             .current_dir(project)
             .env("UV_PROJECT_ENVIRONMENT", venv),
@@ -477,9 +518,13 @@ fn run_uv_sync(app: &AppHandle, state: &SidecarState, project: &PathBuf, venv: &
     state.set_stage(app, "installing_deps");
     let torch_extra = if has_nvidia_gpu(state) { "cu124" } else { "cpu" };
     state.log(app, &format!("[supervisor] engine deps: torch variant = {torch_extra}"));
+    // `--frozen`: install straight from the bundled `uv.lock` without re-resolving
+    // or rewriting it. The project dir is the read-only install/resource location,
+    // so a lock rewrite there would fail; the shipped lock already pins every
+    // engine + cpu/cu124 wheel, so freezing is both correct and safe.
     let spawned = no_window(
-        Command::new("uv")
-            .args(["sync", "--no-dev", "--extra", "engine", "--extra", torch_extra])
+        Command::new(uv_bin())
+            .args(["sync", "--no-dev", "--frozen", "--extra", "engine", "--extra", torch_extra])
             .current_dir(project)
             .env("UV_PROJECT_ENVIRONMENT", venv),
     )
@@ -554,7 +599,7 @@ fn spawn_sidecar(app: &AppHandle, port: u16) -> std::io::Result<Child> {
     no_window(
         Command::new(venv_python(app))
             .arg("main.py")
-            .current_dir(sidecar_dir())
+            .current_dir(sidecar_dir(app))
             .env("PARROT_PORT", port.to_string())
             .env("PARROT_DATA_DIR", data_dir(app)),
     )
@@ -1016,7 +1061,7 @@ mod tests {
         let prev = std::env::var("PARROT_SIDECAR_DIR").ok();
 
         std::env::set_var("PARROT_SIDECAR_DIR", "/tmp/parrot-custom-sidecar");
-        assert_eq!(sidecar_dir(), PathBuf::from("/tmp/parrot-custom-sidecar"));
+        assert_eq!(sidecar_dir_fallback(), PathBuf::from("/tmp/parrot-custom-sidecar"));
 
         match prev {
             Some(v) => std::env::set_var("PARROT_SIDECAR_DIR", v),
