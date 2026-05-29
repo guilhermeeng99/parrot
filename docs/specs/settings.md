@@ -1,8 +1,8 @@
 # Settings
 
-The minimal configuration surface for Parrot. There are exactly three groups: **Appearance** (theme + UI zoom, persisted locally on the frontend), **Engine status** (read-only — the single `omnivoice` backend plus the detected compute device), and an optional **Hugging Face token** (encrypted at rest, used solely to download the gated voice model on first run). Everything beyond these three is explicitly out of scope (see [Non-goals](#non-goals)).
+The minimal configuration surface for Parrot. There are exactly three groups: **Appearance** (in V1 this is a fixed, read-only statement — Parrot ships a single light theme; any prefs are frontend-local), **Engine status** (read-only — the single `omnivoice` backend plus the detected compute device), and an optional **Hugging Face token** (encrypted at rest, used solely to download the gated voice model on first run). Everything beyond these three is explicitly out of scope (see [Non-goals](#non-goals)).
 
-Appearance is owned by the frontend prefs store and never touches the sidecar. The HF token and engine status are owned by the Python sidecar; the UI reads them over the loopback REST surface. See [../../CLAUDE.md](../../CLAUDE.md) for project-wide conventions, [device-detection.md](./device-detection.md) for how the device string is computed, and [first-run-setup.md](./first-run-setup.md) for the model-download flow the token feeds.
+Appearance is owned by the frontend and never touches the sidecar. The HF token and engine status are owned by the Python sidecar; the UI reads them over the loopback REST surface. See [../../CLAUDE.md](../../CLAUDE.md) for project-wide conventions, [design-system.md](./design-system.md) for the visual system (the source of truth for the light theme), [ui-ux.md](./ui-ux.md) for the Settings screen's UX, [device-detection.md](./device-detection.md) for how the device string is computed, and [first-run-setup.md](./first-run-setup.md) for the model-download flow the token feeds.
 
 ## Entity Contract
 
@@ -31,22 +31,24 @@ Invariants:
 - Clearing the token deletes the `hf_token` row but **preserves** `_secret_key_salt`, so a re-save by the same user on the same machine round-trips correctly.
 - Parrot does **not** persist theme, zoom, or any non-secret config in this table. The only sidecar-owned setting is the token.
 
-### 2. Frontend — prefs store (local, authoritative for appearance)
+### 2. Frontend — Appearance (fixed light theme, V1)
 
-Appearance preferences are UI-only and live in a Svelte prefs store backed by WebView `localStorage`, never sent to the sidecar.
+Appearance is **not configurable in V1**. Parrot ships exactly one visual system — the Calendly "Sky Blueprint on Bright Paper" light theme (Montserrat type family, action-blue as the single interaction color) — defined and locked in [design-system.md](./design-system.md). There is **no theme toggle and no UI-zoom control** in V1; both are backlog (see [Non-goals](#non-goals)).
 
 ```ts
+// V1: no user-tunable appearance prefs.
+// The theme is a compile-time/design-system constant, not a stored value.
 interface AppearancePrefs {
-  theme: 'light' | 'dark';   // default 'dark'
-  zoom: number;              // UI scale, default 1.0; clamped to [0.8, 1.5]
+  // (intentionally empty in V1)
+  // Backlog: theme: 'light' | 'dark';  zoom: number;
 }
 ```
 
 Invariants:
 
-- `theme` and `zoom` are readable and applied **before** the sidecar is reachable — appearance must never block on a healthy backend.
-- `zoom` is clamped on read and on write; an out-of-range or non-numeric stored value falls back to `1.0`.
-- These prefs are independent of `parrot_data/` and do not require the DB, the `settings` table, or any sidecar IPC.
+- The light theme is **always applied** and is available at first paint, independent of sidecar health — appearance must never block on a healthy backend.
+- There is no appearance value to read, write, validate, or fall back from in V1; the theme cannot be in a "wrong" or "corrupt" state because it is fixed by the design system.
+- If any appearance pref is later introduced, it stays **frontend-local** (WebView `localStorage`) and never reaches the `settings` table or any sidecar IPC.
 
 ### 3. Engine status (read-only, derived — not stored)
 
@@ -88,8 +90,8 @@ interface TokenState {
 6. **Clear is idempotent and safe.** Clearing removes the `hf_token` row, keeps the salt, and invalidates the validation cache. Clearing when no token is set is a successful no-op.
 7. **Invalid token is surfaced, not swallowed.** A token whose `whoami` fails is still stored (the user may be offline) but is reported `set: true, whoami_ok: false, whoami_user: null` so the UI can warn.
 8. **Validation is cached.** `whoami` results are cached ~300 s per token so repeated Settings reads do not hammer the HF API. Set and clear both invalidate the cache; a "Test now" action invalidates and re-validates.
-9. **Appearance is sidecar-independent.** Theme and zoom apply purely on the frontend, persist locally in `localStorage`, and work with the sidecar down or starting (Rule applies to first-paint, see [Edge Cases](#edge-cases)).
-10. **Theme default is dark; zoom default is 1.0.** Missing/corrupt prefs fall back to these without error.
+9. **Appearance is fixed and sidecar-independent.** Parrot uses one light theme (see [design-system.md](./design-system.md)). It applies purely on the frontend, requires no stored value, and works with the sidecar down or starting (Rule applies to first-paint, see [Edge Cases](#edge-cases)).
+10. **No theme toggle, no zoom in V1.** Dark mode and UI zoom are backlog. The Appearance group exposes no control that changes them; if surfaced at all, they appear as a disabled/"coming soon" affordance, otherwise they are simply omitted. There is no default-theme or default-zoom value to fall back to because neither is configurable.
 11. **Loopback-only.** All sidecar settings endpoints (token read/write, engine status) are loopback-gated: a non-loopback origin gets `403` before the handler runs. The UI only ever calls them over `http://127.0.0.1:3900`.
 12. **`updated_at` advances on every write.** Both set and the salt write stamp `updated_at` with the current epoch seconds.
 
@@ -136,24 +138,21 @@ Read-only single-engine status. This is the only place the device is reported to
 
 ### Appearance
 
-Appearance has **no IPC**. Theme and zoom are read/written entirely through the frontend prefs store (`localStorage`). Applying zoom or theme may use a Tauri command for native window chrome, but no sidecar call is involved and the `settings` table is never touched.
+Appearance has **no IPC** and, in V1, **no write path of any kind**. The light theme is fixed by the design system (see [design-system.md](./design-system.md)); the UI applies it directly. The `settings` table is never touched, and there is no Tauri command or sidecar call to change theme or zoom (those controls do not exist in V1).
 
 ## State Machines
 
-### Appearance store (frontend)
+### Appearance (frontend)
+
+In V1 there is no Appearance state machine — the theme is a fixed constant applied at first paint and never changes for the life of the app. There is nothing to hydrate, persist, clamp, or fall back from.
 
 ```text
-                 hydrate (read local prefs, clamp zoom)
-   [uninitialized] ───────────────────────────────────► [ready]
-        │                                                  │
-        │ no/corrupt prefs                                 │ setTheme / setZoom
-        ▼                                                  ▼
-   [ready: defaults]  ◄─────────────────────────────  [ready: persisting]
-   (theme=dark, zoom=1.0)        write local + apply
+   [app start] ──apply fixed light theme (from design-system.md)──► [themed]
+   (no transitions; no stored value; no toggle/zoom in V1)
 ```
 
-- `hydrate` runs at app start, independent of sidecar health, so first paint already has the right theme.
-- `setTheme` / `setZoom` apply immediately to the DOM/window, then persist to `localStorage`. Persistence failure logs and keeps the in-memory value (appearance still works for the session).
+- The theme is applied independent of sidecar health, so first paint already has the correct light appearance.
+- Dark mode + zoom are backlog; if/when added they introduce a frontend-local store (`localStorage`) with its own hydrate/persist transitions, but that is out of scope for V1.
 
 ### HF token store (frontend)
 
@@ -182,10 +181,10 @@ Appearance has **no IPC**. Theme and zoom are read/written entirely through the 
 - **Token set but invalid.** `whoami` returns 401/403 (revoked/typo) or the network is down. The token is still stored; state reports `set: true, whoami_ok: false`. The UI shows a non-blocking "saved but not valid" banner. Synthesis with an already-downloaded model is unaffected; only first-run gated download is blocked (see [first-run-setup.md](./first-run-setup.md)).
 - **Token offline at save time.** `whoami` can't reach HF. Treat identically to "invalid" (`whoami_ok: false`) — the negative result is cached for ~300 s, so a later "Test now" recovers once connectivity returns.
 - **`parrot.db` copied across machines.** The per-install Fernet key no longer matches; decrypting `hf_token` raises `InvalidToken`. The read path logs a warning and reports `set: false` (degrade to "no token"), never a `500` that blocks the panel. The user simply re-enters the token.
-- **Theme applied before sidecar ready.** Appearance hydrates from local prefs at first paint; it must not await `/healthz`, `/engine/status`, or any sidecar call. The engine-status section may render a "starting…" placeholder while the rest of Settings is fully interactive.
-- **Settings write while sidecar down.** A `POST`/`DELETE` to the token endpoints fails at the transport layer (connection refused). The token store enters `error` and the UI shows "Engine not running — can't save token" with a retry; no partial write occurs. Appearance writes are unaffected because they never reach the sidecar.
+- **Appearance before sidecar ready.** The fixed light theme is applied at first paint; it must not await `/healthz`, `/engine/status`, or any sidecar call. The engine-status section may render a "starting…" placeholder while the rest of Settings is fully interactive.
+- **Settings write while sidecar down.** A `POST`/`DELETE` to the token endpoints fails at the transport layer (connection refused). The token store enters `error` and the UI shows "Engine not running — can't save token" with a retry; no partial write occurs. Appearance is unaffected because it has no write path and never reaches the sidecar.
 - **Engine status when device detection fails.** `/engine/status` returns `device: "cpu"` rather than throwing, matching Rule 2's "synthesis still works" guarantee (CPU is slower, see the `device-detection.md` CPU notes).
-- **Corrupt / unreadable local prefs.** Non-JSON or out-of-range values fall back to `theme=dark`, `zoom=1.0`; a clamped zoom is re-persisted on next write.
+- **No appearance state to corrupt.** Because V1 stores no theme/zoom value, there is no "corrupt prefs" failure mode for appearance — the light theme is always the design-system constant. (When dark/zoom land in a later milestone, their frontend-local store will define its own fallback behavior.)
 - **Misrouted plaintext write to `hf_token`.** Any attempt to write the `hf_token` key through the non-secret text path is rejected with an error — the encrypted row can never be overwritten with plaintext.
 - **Concurrent set + clear.** Both serialize through the single SQLite writer (WAL); `INSERT OR REPLACE` and `DELETE` are atomic. Last write wins; the validation cache is invalidated by whichever completes last, so the next state read is consistent.
 
@@ -193,6 +192,8 @@ Appearance has **no IPC**. Theme and zoom are read/written entirely through the 
 
 These are present in OmniVoice's settings surface and are **deliberately removed** from Parrot. None should be documented as present:
 
+- Theme toggle / dark mode (V1 is light-only — see [design-system.md](./design-system.md); dark mode is backlog).
+- UI-zoom / display-scale control (backlog).
 - Multi-engine picker / engine-select / per-engine health-test buttons (Parrot ships one engine).
 - Performance-tuning panels (e.g. `torch.compile` toggle, idle-timeout, CPU-pool config).
 - Model store / download manager UI beyond first-run (see [first-run-setup.md](./first-run-setup.md)).
@@ -207,9 +208,9 @@ These are present in OmniVoice's settings surface and are **deliberately removed
 |-------|----------|------|---------|
 | `settings` table — `hf_token` | `parrot_data/parrot.db` (SQLite, WAL) | `GET /settings/hf-token` | `POST`/`DELETE /settings/hf-token` |
 | `settings` table — `_secret_key_salt` | `parrot_data/parrot.db` | engine KDF (internal) | first token set (engine-managed) |
-| Appearance prefs (`theme`, `zoom`) | frontend `localStorage` (WebView, via Svelte prefs store) | Appearance store hydrate | `setTheme` / `setZoom` |
+| Appearance (light theme) | fixed by [design-system.md](./design-system.md) — **not stored, not configurable in V1** | applied at first paint | n/a (no write path in V1) |
 | Engine status (`active`, `device`) | derived at request time — **not stored** | `GET /engine/status` | n/a |
 
 - The `hf_token` row is the only sidecar-owned Parrot setting; it survives `parrot_data/` upgrades via the idempotent + alembic-migrated `settings` table with no manual migration.
-- Appearance prefs are independent of `parrot_data/`, live in WebView `localStorage`, and require no migration.
+- Appearance has no persisted state in V1: the light theme is a design-system constant, independent of `parrot_data/`, requiring no migration. Any future dark-mode/zoom prefs would live in WebView `localStorage`, still frontend-local.
 - The HF model weights downloaded using the token are cached in the HF cache dir (see [first-run-setup.md](./first-run-setup.md)), not in `parrot_data/`.

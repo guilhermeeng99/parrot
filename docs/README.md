@@ -21,7 +21,8 @@ This is the source of truth for Parrot. Code conforms to these docs, not the oth
 | [specs/device-detection.md](specs/device-detection.md) | GPU/CPU auto-detect (CUDA/MPS/ROCm/CPU) and cross-platform parity. |
 | [specs/ipc-contract.md](specs/ipc-contract.md) | The complete frontend↔sidecar API + Tauri command surface. |
 | [specs/settings.md](specs/settings.md) | Appearance, engine status, optional HF token entry. |
-| [specs/design-system.md](specs/design-system.md) | Svelte UI: theme, components, layout, accessibility. |
+| [specs/design-system.md](specs/design-system.md) | The design system: Calendly "Sky Blueprint" light theme (adopted from Toolzy), Tailwind v4 `@theme` tokens, Montserrat, the Svelte component inventory. |
+| [specs/ui-ux.md](specs/ui-ux.md) | Application UI/UX: app shell, screen-by-screen flows (Setup/Clone/Speak/Profile/Settings), interaction states, microcopy, accessibility-in-context. |
 | [specs/packaging.md](specs/packaging.md) | Tauri bundle + Python sidecar, cross-platform installers, updater. |
 
 ## How to use these specs
