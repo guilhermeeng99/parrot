@@ -279,12 +279,12 @@ Parrot ships exactly one TTS engine (`omnivoice`, pure-Python via `transformers`
 ```ts
 interface EngineStatus {
   active: 'omnivoice';                         // single fixed engine, not selectable
-  device: 'cuda' | 'mps' | 'cpu';              // the resolved compute device (ROCm hardware is supported and reports as cuda)
+  device: 'cuda' | 'cpu';                      // the resolved compute device
   device_label?: string;                       // optional human label, e.g. "cuda (RTX 4090)"
 }
 ```
 
-- `device` is one of exactly `cuda`, `mps`, `cpu` (ROCm hardware is supported and reports as `cuda`). How the device is resolved is owned by [device-detection.md](./device-detection.md).
+- `device` is one of exactly `cuda`, `cpu`. How the device is resolved is owned by [device-detection.md](./device-detection.md).
 - There is **no** `backends` array — Parrot has a single fixed engine, nothing to enumerate or select.
 
 > **Parrot trim:** OmniVoice's `POST /engines/select`, the `asr`/`llm` families, translation-engine install/uninstall, effect-preset listing, and per-engine `health` spawn-ping are **all dropped**. There is no `/engine`, `/engine-status`, `/engines`, `/engines/tts`, `/system/info`, or `/system/notifications` surface. The client (`engine.ts`) exposes a single `getEngineStatus()` and no setter.
@@ -358,7 +358,7 @@ The browser sandbox can't open files, reveal folders, or play system audio. The 
 | `invoke()` name | Args | Returns | Purpose |
 |-----------------|------|---------|---------|
 | `save_audio_dialog` | `{ defaultName: string, wavBytes?: number[] }` | `string \| null` (chosen path, or null if cancelled) | Native "Save As" dialog to export a generated WAV. |
-| `reveal_in_folder` | `{ path: string }` | `void` | Reveal a file in Finder / Explorer / file manager. |
+| `reveal_in_folder` | `{ path: string }` | `void` | Reveal a file in Windows Explorer. |
 | `play_audio` | `{ path: string }` | `Result<(), string>` | Play a WAV through the OS audio device. |
 | `stop_audio` | — | `void` | Stop current native playback. |
 | `get_app_paths` | — | `{ dataDir, outputsDir, voicesDir, dbPath, logPath }` | Resolve `parrot_data/` locations for the UI (e.g. "open data folder"). |
@@ -370,7 +370,7 @@ The browser sandbox can't open files, reveal folders, or play system audio. The 
 Conventions:
 
 - Rust commands return `Result<T, String>` for fallible operations; the `Err(String)` surfaces to JS as a thrown promise rejection. The `native.ts` client wraps these in `ApiError` (with `status` unset) so the toast layer is uniform with HTTP errors.
-- Paths returned to the UI are absolute, OS-native strings. The UI treats them as opaque (passes them straight back to `reveal_in_folder` / `play_audio`).
+- Paths returned to the UI are absolute, native Windows strings. The UI treats them as opaque (passes them straight back to `reveal_in_folder` / `play_audio`).
 - The **process supervisor** command (spawn/health-check/teardown of the Python sidecar) is intentionally **not** in the UI-callable list — only the supervisor module owns the sidecar lifecycle. The UI observes liveness via `/healthz`, never by spawning.
 
 > **Parrot trim of native commands:** OmniVoice's dictation-shortcut (`get/set_dictation_shortcut`), tray-recording (`set_tray_recording`), pill-autostart (`enable/disable/is_pill_autostart_enabled`), `simulate_paste`, launch-as-widget, and `hf_cache_scan` commands are dropped — they belong to dictation / pill / gallery features that Parrot doesn't ship. `read_log_tail`, `quit_app`, and the dialog/playback/updater glue remain.

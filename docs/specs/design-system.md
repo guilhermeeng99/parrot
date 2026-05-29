@@ -2,7 +2,7 @@
 
 The visual and interaction foundation for Parrot's Svelte UI: the design language, the token block that is the single source of truth, the component inventory, the screen set, the layout shell, and accessibility. This spec is the contract an implementer builds against — it defines *what tokens and components exist, the exact class recipes that realize them, and how they behave*. It is deliberately small: Parrot has two jobs (clone a voice, speak text), so the screen set and component count stay tight.
 
-Parrot adopts the **Toolzy design system** wholesale. Toolzy's tokens are used **verbatim**; Toolzy's React `components/ui.tsx` recipes are **re-implemented in Svelte** (SvelteKit SPA, TypeScript strict) with the **same Tailwind v4 class strings**. No React, no Radix. The UI never imports Python/torch; it only talks to the sidecar over the [IPC surface](./ipc-contract.md). All cross-platform, default-on behavior here must render and behave identically on macOS / Windows / Linux per the parity rule in [../../CLAUDE.md](../../CLAUDE.md).
+Parrot adopts the **Toolzy design system** wholesale. Toolzy's tokens are used **verbatim**; Toolzy's React `components/ui.tsx` recipes are **re-implemented in Svelte** (SvelteKit SPA, TypeScript strict) with the **same Tailwind v4 class strings**. No React, no Radix. The UI never imports Python/torch; it only talks to the sidecar over the [IPC surface](./ipc-contract.md). Default-on behavior here must render and behave consistently on Windows per the conventions in [../../CLAUDE.md](../../CLAUDE.md).
 
 Related specs: [ui-ux.md](./ui-ux.md) (applies this system to the screens), [architecture.md](./architecture.md), [voice-cloning.md](./voice-cloning.md), [synthesis.md](./synthesis.md), [voice-profiles.md](./voice-profiles.md), [first-run-setup.md](./first-run-setup.md), [device-detection.md](./device-detection.md), [ipc-contract.md](./ipc-contract.md), [settings.md](./settings.md).
 
@@ -87,7 +87,7 @@ The single source of truth is the **`@theme` token block** in `frontend/src/app.
 
 ## Business Rules
 
-1. **The `@theme` block is the only styling API.** A component that hard-codes a hex color or an off-grid px value instead of a token-backed utility is a bug — it breaks visual consistency and the future `.dark` override, and risks cross-platform parity drift.
+1. **The `@theme` block is the only styling API.** A component that hard-codes a hex color or an off-grid px value instead of a token-backed utility is a bug — it breaks visual consistency and the future `.dark` override, and risks visual inconsistency.
 2. **Light theme is fixed in V1.** There is no theme switch, no `data-theme`, no dark palette shipped. The `@theme` block is authored so a `.dark { … }` override can be added in a later milestone without touching component markup.
 3. **No UI zoom in V1.** No root-scale variable, no zoom Slider. Type sizes come from the fixed `--text-*` scale.
 4. **One accent.** `action-blue` (`#006bff`) is reserved for the primary action path (primary CTA, active nav/pill, focus ring, key accents). It is never used for large blocks of body text or decorative fills.
@@ -96,7 +96,7 @@ The single source of truth is the **`@theme` token block** in `frontend/src/app.
 7. **Elevation = rounded surface + diffuse slate shadow.** Cards are `rounded-2xl` (16px) with `shadow-sm-2` at rest. `shadow-sm` is the lighter interactive/hover lift. Heavy shadows are never applied to non-interactive elements.
 8. **One button primitive.** Every clickable affordance is the `Button` component with a `variant`; ad-hoc `<button>` styling is not allowed. Same rule for the form primitives (`Field`, `Select`, `Slider`) and `Dialog`/`Toast`.
 9. **Identical class strings to Toolzy.** Svelte re-implementations keep the exact Tailwind class recipes below. A diverging class string (different padding, radius, color utility) is a regression against the reference.
-10. **Single-engine assumption is visible in the design.** Parrot ships one engine (`omnivoice`), so there is **no engine picker** component and no multi-engine surface. Engine status, where shown, is a read-only `Badge`/label sourced from `GET /engine/status` → `{"active":"omnivoice","device":"<id>"}` (device ∈ {`cuda`,`mps`,`cpu`}; ROCm hardware reports as `cuda`). This is the only engine/device endpoint the UI reads.
+10. **Single-engine assumption is visible in the design.** Parrot ships one engine (`omnivoice`), so there is **no engine picker** component and no multi-engine surface. Engine status, where shown, is a read-only `Badge`/label sourced from `GET /engine/status` → `{"active":"omnivoice","device":"<id>"}` (device ∈ {`cuda`,`cpu`}). This is the only engine/device endpoint the UI reads.
 
 ---
 
@@ -269,7 +269,7 @@ mb-2 text-body font-semibold uppercase tracking-wide text-slate-blue
 appearance-none rounded-lg border border-platinum-tint bg-snow-white px-3 py-2 pr-9
 text-body-lg text-midnight-indigo focus-visible:border-action-blue
 ```
-Custom `▾` chevron positioned in the `pr-9` gutter. Native `<select>` underneath for OS-correct listbox behavior and keyboard parity across platforms.
+Custom `▾` chevron positioned in the `pr-9` gutter. Native `<select>` underneath for OS-correct listbox behavior and keyboard parity.
 
 ### Text input — `TextInput.svelte` (Number / Password pattern)
 
@@ -481,7 +481,7 @@ Full playback behavior in the synthesis flow: [synthesis.md](./synthesis.md).
 - **Streaming WS drop** (`ws://127.0.0.1:3900/ws/tts`). If the socket closes mid-synthesis, fall back to the buffered `POST /generate` result or surface a retry; the player must not hang in `loading`.
 - **Locked profile resolution.** A locked `VoiceCard` shows the `LOCKED` `Badge` and disables reference-swap so users aren't surprised the live reference is ignored (generation uses locked audio + stored seed).
 - **Backend not ready / `GET /healthz` failing after setup.** `GET /healthz` returns `{"status":"ok"}` only; the shell shows a non-blocking reconnect banner when it fails. Navigation stays available but generation actions are disabled until health returns.
-- **Reduced motion.** The `Spinner`, `ProgressBar` indeterminate slide, and `Recorder` recording pulse must honor `prefers-reduced-motion: reduce` — decorative animation is suppressed; only state-feedback transitions remain. This is a default-on accessibility behavior, identical on all three OSes.
+- **Reduced motion.** The `Spinner`, `ProgressBar` indeterminate slide, and `Recorder` recording pulse must honor `prefers-reduced-motion: reduce` — decorative animation is suppressed; only state-feedback transitions remain. This is a default-on accessibility behavior.
 - **High-contrast / forced-colors OS mode.** The `action-blue` focus ring and field borders must remain visible under `forced-colors`; do not rely solely on shadow glows for affordance.
 
 ---

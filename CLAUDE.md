@@ -1,10 +1,10 @@
 # Parrot — Project Conventions
 
-**Parrot** is a fully-local desktop app that does exactly two things well: **clone a voice from a short reference sample**, and **make that voice speak any text you type**. No accounts, no API keys, no cloud. It runs on the user's own machine (CUDA / MPS / ROCm / CPU auto-detect) across macOS, Windows, and Linux.
+**Parrot** is a fully-local desktop app that does exactly two things well: **clone a voice from a short reference sample**, and **make that voice speak any text you type**. No accounts, no API keys, no cloud. It runs on the user's own machine (CUDA / CPU auto-detect) on **Windows 10/11 (x64)** — Parrot is Windows-only.
 
 Parrot is an independent, **Apache-2.0** open-source app built on the same Apache-2.0 voice model as [OmniVoice Studio](https://github.com/debpalash/OmniVoice-Studio). It is **not a code fork** — it reimplements its own app and is scoped to just clone-and-speak, with none of OmniVoice's other features (video dubbing, dictation/ASR, voice gallery, batch, marketplace, multi-engine). OmniVoice is a **design reference only**; its FSL-licensed app code is not copied. See [docs/specs/architecture.md](docs/specs/architecture.md) for the full picture and [docs/LICENSING.md](docs/LICENSING.md) for the licensing rationale.
 
-**Core value:** *a first run that actually works.* Download, install, clone your voice, hear it speak — without hitting a wall. Everything downstream is secondary to that path staying reliable on every platform.
+**Core value:** *a first run that actually works.* Download, install, clone your voice, hear it speak — without hitting a wall. Everything downstream is secondary to that path staying reliable on Windows.
 
 ---
 
@@ -87,7 +87,7 @@ parrot/
 | **Frontend lang** | TypeScript (strict) | All UI + IPC clients typed |
 | **Styling / design system** | Tailwind v4 (`@theme` tokens) + Montserrat | Calendly "Sky Blueprint" light theme, adopted from Toolzy. Light-only in V1 (dark = backlog). Source of truth: `frontend/src/app.css` + [docs/specs/design-system.md](docs/specs/design-system.md) / [docs/specs/ui-ux.md](docs/specs/ui-ux.md) |
 | **Engine** | Python 3.11+ + FastAPI | Local sidecar; REST + WS |
-| **ML runtime** | PyTorch + transformers | OmniVoice model; CUDA/MPS/ROCm/CPU auto-detect |
+| **ML runtime** | PyTorch + transformers | OmniVoice model; CUDA/CPU auto-detect (Windows) |
 | **Python env** | uv | Bootstraps the venv; shipped as a Tauri `externalBin` sidecar |
 | **Storage** | SQLite (WAL) + on-disk audio | `voice_profiles`, `generation_history`, `settings` |
 | **Migrations** | alembic + idempotent `CREATE TABLE IF NOT EXISTS` | Tested upgrade path; never break existing user data |
@@ -128,7 +128,7 @@ Shared principles across all three languages:
 ## Comments
 
 - Write **WHY**, not WHAT.
-- Preserve decisions and non-obvious context (especially cross-platform workarounds — e.g. the Windows HF-cache path-length fix).
+- Preserve decisions and non-obvious context (especially platform workarounds — e.g. the Windows HF-cache path-length fix).
 - Do not strip meaningful comments during refactors.
 - Public IPC handlers document: intent, params, return shape, error cases.
 
@@ -142,7 +142,7 @@ bun install                 # install deps
 bun run dev                 # Svelte dev server (localhost:3901)
 bun run build               # production build
 bun run tauri dev           # full app: shell + frontend + sidecar
-bun run tauri build         # bundle installers (dmg/msi/deb/appimage)
+bun run tauri build         # bundle the Windows installer (msi)
 
 # Sidecar (from sidecar/)
 uv sync                     # create/refresh the Python venv
@@ -170,7 +170,7 @@ After every change, before considering it done:
 3. **Python:** `uv run pytest` green; secrets never logged.
 4. **If the IPC contract changed:** update [docs/specs/ipc-contract.md](docs/specs/ipc-contract.md) **and** the typed client in `frontend/src/lib/api/` in the same change.
 5. **If the DB schema changed:** add an alembic migration with a tested upgrade from the previous version. Existing `parrot_data/` must keep working with no manual migration.
-6. **Cross-platform:** if you touched a default-mode feature, confirm it behaves identically on macOS/Windows/Linux, or move it behind explicit opt-in (see rule below).
+6. **Windows:** confirm the change works on Windows 10 and 11 (x64) — the only supported platform (see Platform Scope below).
 7. Run `scripts/smoke-test.sh` for anything touching the first-run, sidecar lifecycle, or generation path.
 
 ---
@@ -210,11 +210,16 @@ Cross-link related specs with relative links: `[device-detection.md](./device-de
 
 ---
 
-## Cross-Platform Parity (strict rule)
+## Platform Scope (Windows-only)
 
-A feature that ships in **default mode** — out of the box, no toggle, no opt-in — must behave **identically on macOS, Windows, and Linux.** Platform-specific *implementation code* is allowed (OS APIs, shells, packaging); the user-visible *default behavior* cannot diverge.
+Parrot targets **Windows 10/11 (x64) only.** macOS and Linux are **out of scope** — do not add macOS/Linux packaging, MPS/ROCm device branches, or POSIX-only paths to the default build. (This is a deliberate narrowing from the original cross-platform goal; revisit this doc before reopening it.)
 
-Platform-only capabilities (e.g. a macOS-only global shortcut, a Windows-only path picker) must sit behind explicit opt-in: a Settings toggle, env var, or CLI flag. When a default doesn't work on a platform, that's a **P0 bug** — fix it on the missing platform or move it behind opt-in. There is no third option.
+Practical consequences:
+- **Devices:** CUDA (NVIDIA) and CPU only. No MPS (Apple), no ROCm (AMD). The `device` field is exactly `{"cuda","cpu"}`.
+- **Installer:** MSI (`tauri.conf.json` `bundle.targets = ["msi"]`). No dmg/app/deb/appimage; signing is Windows code-signing only.
+- **Paths/data dir:** Windows conventions (`%APPDATA%\Parrot\…`), overridable via env var. Use cross-platform Rust/Python path APIs anyway (`PathBuf`, `pathlib`) — correctness, not portability ambition.
+
+A first-run/default feature that doesn't work on Windows 10 or 11 is a **P0 bug**.
 
 ---
 

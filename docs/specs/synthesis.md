@@ -125,7 +125,7 @@ Deletes one history row and its output file (path-validated; missing file ignore
 
 ### `GET /engine/status`
 
-The single engine/device endpoint. Returns `{"active":"omnivoice","device":"<id>"}` where `device` is one of `cuda`, `mps`, or `cpu` (ROCm hardware is supported and reports as `cuda`) (an optional human label may be added as `device_label`). Parrot ships a single fixed engine — there is no engine-switch endpoint and no backends array. The synthesis loading state machine reads model/load status from this endpoint.
+The single engine/device endpoint. Returns `{"active":"omnivoice","device":"<id>"}` where `device` is one of `cuda` or `cpu` (an optional human label may be added as `device_label`). Parrot ships a single fixed engine — there is no engine-switch endpoint and no backends array. The synthesis loading state machine reads model/load status from this endpoint.
 
 ### `WS /ws/tts` (optional streaming)
 
@@ -214,7 +214,7 @@ idle ──speak()──▶ submitting ──(model loading)──▶ waitingFor
 - **Very long text** — the model handles internal chunking/segmentation; Parrot does not impose a hard character cap at the API. The `text` stored in `generation_history` is truncated to the first 200 chars (display only — the synthesized audio uses the full text). Expect proportionally longer `generation_time`; the request blocks on `_gpu_pool` for the duration. Long inputs are the main OOM trigger (see below).
 - **No profile and no `ref_audio`** — valid: synthesizes in the model's default voice. Not an error. `profile_id` in history is `NULL`.
 - **`profile_id` not found** — silently falls back to default voice; history `profile_id` is `NULL` (no 404 for this path).
-- **Out-of-memory mid-generation** — inference aborts; the engine runs `gc.collect()` and empties the accelerator cache (CUDA/MPS), then returns `500` with the recoverable message: *"TTS engine stopped mid-generation. This usually means it ran out of memory. Try the Flush button to reload the model, then regenerate."* The UI shows Flush & retry. The GPU pool worker count is itself VRAM-aware (budgeted per job, capped at 4 on CUDA, 1 on MPS/CPU), which keeps concurrent jobs from overcommitting.
+- **Out-of-memory mid-generation** — inference aborts; the engine runs `gc.collect()` and empties the accelerator cache (CUDA), then returns `500` with the recoverable message: *"TTS engine stopped mid-generation. This usually means it ran out of memory. Try the Flush button to reload the model, then regenerate."* The UI shows Flush & retry. The GPU pool worker count is itself VRAM-aware (budgeted per job, capped at 4 on CUDA, 1 on CPU), which keeps concurrent jobs from overcommitting.
 - **Model not loaded yet** — the first `/generate` (or the first WS request) awaits `get_model()`, which loads weights under an async lock. Concurrent requests wait on the same lock rather than triggering parallel loads. The UI sits in `waitingForModel` and shows load sub-stage/progress. If weights aren't downloaded yet, this is the setup/first-run path — see [first-run-setup.md](./first-run-setup.md) for the model-download (SSE) flow; synthesis should be attempted only after `models_ready` is true.
 - **Model load failure** — surfaced via engine status `error` with a message; `/generate` raises `500` and the UI shows the failure rather than spinning forever.
 - **Unknown `effect_preset`** — `400` with the valid-preset list; never a 500.

@@ -2,7 +2,7 @@
 
 Parrot ships **continuous-to-main**: no release candidates, no soak, no ceremony. Users who want a preview follow `main`; tagged releases are cut when a milestone's exit criteria are met. The bar for each milestone is functional, not a calendar date.
 
-The north star is unchanged at every phase: **a first run that actually works** — download, clone, speak, on every platform.
+The north star is unchanged at every phase: **a first run that actually works** — download, clone, speak, on Windows.
 
 Legend: ☐ not started · ◐ in progress · ☑ done
 
@@ -55,17 +55,15 @@ Bring over the stripped OmniVoice engine and wire the two real features.
 
 ---
 
-## Phase 3 — Cross-platform hardening
+## Phase 3 — Windows hardening
 
-Make the MVP work identically on the three OSes.
+Make the MVP solid on Windows 10/11 (x64) — the only supported platform ([CLAUDE.md Platform Scope](../CLAUDE.md)).
 
-- ☐ macOS (Apple Silicon + Intel): MPS detect, signing/notarization, dmg
-- ☐ Windows (x64): CUDA + CPU, HF-cache path-length fix, msi
-- ☐ Linux: CUDA/ROCm/CPU, AppImage + deb
+- ☐ Windows (x64): CUDA + CPU device detect, HF-cache path-length fix, MSI installer
 - ☐ Sidecar packaging: `uv` as `externalBin`, venv bootstrap on first launch ([packaging.md](specs/packaging.md))
-- ☐ Parity audit: every default-mode feature behaves the same on all three (CLAUDE.md strict rule)
+- ☐ Code-sign the MSI so release builds don't trip SmartScreen
 
-**Exit:** installers for all three platforms each pass the clone→speak smoke test from a clean install.
+**Exit:** the MSI installer passes the clone→speak smoke test from a clean install on both Windows 10 and Windows 11.
 
 ---
 

@@ -57,7 +57,7 @@ Engine status is computed on demand, never persisted. Parrot ships exactly one e
 ```ts
 interface EngineStatus {
   active: 'omnivoice';   // always; single-engine build
-  device: string;        // detected compute device ∈ {"cuda","mps","cpu"} (ROCm hardware is supported and reports as cuda)
+  device: string;        // detected compute device ∈ {"cuda","cpu"}
 }
 ```
 
@@ -131,7 +131,7 @@ Clear the stored token.
 
 Read-only single-engine status. This is the only place the device is reported to the UI.
 
-- **Returns** `200` → `{ "active": "omnivoice", "device": "<detected device>" }`, where `device ∈ {"cuda","mps","cpu"}` (ROCm hardware is supported and reports as `cuda`). The `device` value is the same string described in [device-detection.md](./device-detection.md).
+- **Returns** `200` → `{ "active": "omnivoice", "device": "<detected device>" }`, where `device ∈ {"cuda","cpu"}`. The `device` value is the same string described in [device-detection.md](./device-detection.md).
 - **Errors:** non-loopback origin → `403`. Must not throw — on detection failure it returns `device: "cpu"`.
 
 > Dropped vs. OmniVoice: there is no engines-list family, no engine-select route, no per-engine `/health` test button in the Settings UI (the supervisor's `GET /healthz` covers liveness — see [architecture.md](./architecture.md)), and no license-acceptance, performance-toggle, logs, or model-store routes.

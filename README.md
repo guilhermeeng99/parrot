@@ -6,7 +6,7 @@
 
 A desktop app that clones a voice from a short reference sample and speaks any text you type — on your own machine, no accounts, no API keys, no cloud.
 
-macOS · Windows · Linux
+Windows
 
 </div>
 
@@ -19,7 +19,7 @@ Parrot does exactly two things, and tries to do them without making you fight it
 1. **Clone** — record or upload a few seconds of a voice, save it as a reusable profile.
 2. **Speak** — type text, pick a voice, get natural speech back. Play it or export a `.wav`.
 
-Everything runs locally on CUDA / Apple MPS / ROCm / CPU (auto-detected). Your reference audio never leaves your machine.
+Everything runs locally on CUDA / CPU (auto-detected). Your reference audio never leaves your machine.
 
 > Parrot is an independent, Apache-2.0 open-source app built on the same Apache-2.0 voice model as [OmniVoice Studio](https://github.com/debpalash/OmniVoice-Studio) — scoped down to just clone-and-speak. It is not a code fork; see [docs/LICENSING.md](docs/LICENSING.md).
 
@@ -33,7 +33,7 @@ Early development. Follow `main` for previews. See the [Roadmap](docs/ROADMAP.md
 
 ## Build from source
 
-Prerequisites: [Bun](https://bun.sh), [Rust](https://rustup.rs) (+ Tauri prerequisites for your OS), [uv](https://docs.astral.sh/uv/).
+Prerequisites: [Bun](https://bun.sh), [Rust](https://rustup.rs) (+ Tauri prerequisites for Windows), [uv](https://docs.astral.sh/uv/).
 
 ```bash
 git clone <your-parrot-repo> parrot && cd parrot

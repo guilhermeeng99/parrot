@@ -1,6 +1,6 @@
 # First-Run Setup
 
-The make-or-break path. From a fresh install, Parrot must reach a state where the user can clone a voice and speak text — without hitting a wall — and then run fully offline forever. This spec defines the boot ordering, the model-download gate, HF token handling, and every failure the path must survive. See [../../CLAUDE.md](../../CLAUDE.md) for the cross-platform-parity and local-first constraints this spec implements.
+The make-or-break path. From a fresh install, Parrot must reach a state where the user can clone a voice and speak text — without hitting a wall — and then run fully offline forever. This spec defines the boot ordering, the model-download gate, HF token handling, and every failure the path must survive. See [../../CLAUDE.md](../../CLAUDE.md) for the local-first constraints this spec implements.
 
 First run is the only run that needs the network. Everything after it is offline.
 
@@ -66,7 +66,7 @@ Invariants:
 4. **Download is resumable and idempotent.** Re-running the download after an interruption resumes from the HF cache rather than restarting from zero. Starting a download for a model already fully cached is a no-op that immediately reports done.
 5. **Disk is checked before and gated during.** `setup/status` exposes `enough_disk`; the UI MUST warn (and SHOULD block) the download when `enough_disk == false` (`< 10 GB` free), because a mid-download `ENOSPC` corrupts the snapshot.
 6. **Offline after first run.** Once `models_ready == true`, no setup-path code may make a network call. Re-launching with the network off MUST still reach the usable app.
-7. **Cross-platform default parity.** The default download path, gate, and offline behavior MUST be identical on macOS, Windows, and Linux. The Windows cache-path workaround (§7) and region mirror selection (§6, edge cases) are platform/region *implementation* details that do not change user-visible default behavior.
+7. **The default path stays robust on Windows.** The default download path, gate, and offline behavior are defined for Windows 10/11 (x64). The Windows cache-path workaround (§7) and region mirror selection (§6, edge cases) are implementation details that keep that default path working; they do not change user-visible default behavior.
 8. **A failed download cools down.** After a download error for a repo, an immediate retry of the **same** repo within the cooldown window is rejected with a clear "retry in N s" message, so a user mashing the button can't stampede a flaky network.
 9. **Token writes never leak to git.** Saving an in-app token persists it encrypted and also primes the canonical HF file via `login()`, but MUST pass `add_to_git_credential=False` so the token is never written to the user's global git credential helper.
 
@@ -99,7 +99,7 @@ All endpoints are on the sidecar at `http://127.0.0.1:3900`. Routes are unprefix
 - **Errors:** the stream itself doesn't fail download work; download failures arrive as `install_error` events on this channel. A client that disconnects mid-stream is logged server-side; no status is returned to the gone client.
 
 ### `GET /engine/status`  (read-only)
-- **Returns** `{ "active": "omnivoice", "device": "<id>" }` where `device ∈ { "cuda", "mps", "cpu" }` (ROCm hardware is supported and reports as `cuda`; a human label may be added as `device_label`). Parrot ships exactly one fixed engine; this exists so the UI doesn't special-case a missing picker and can show the active compute device. There is no engine-selection action and no `backends` array.
+- **Returns** `{ "active": "omnivoice", "device": "<id>" }` where `device ∈ { "cuda", "cpu" }` (a human label may be added as `device_label`). Parrot ships exactly one fixed engine; this exists so the UI doesn't special-case a missing picker and can show the active compute device. There is no engine-selection action and no `backends` array.
 
 ### `GET /healthz`  (supervisor readiness probe)
 - **Returns** `{ "status": "ok" }` with `200` once the FastAPI app is serving. Used **only** by the Rust supervisor to decide the sidecar is up and to leave the boot splash. Fast, no torch import, no `device` field. It does **not** imply `models_ready` — that's a separate `/setup/status` call.
@@ -183,4 +183,4 @@ On Windows the default HF layout (`…/models--org--name/snapshots/<hash>/<file>
 - **Respect explicit overrides.** If the user already set `HF_HOME`, `HF_HUB_CACHE`, or Parrot's own cache-dir override, the redirect is a no-op.
 - The supervisor additionally sets `HF_HUB_DISABLE_SYMLINKS=1` for the sidecar and the install path forces `local_dir_use_symlinks=False`, so the cache works on filesystems/accounts without symlink privileges.
 
-This is platform-specific implementation behind an identical user-visible default (Rule 7): the user still just clicks Download and gets a working model.
+This is a Windows implementation detail behind the same user-visible default (Rule 7): the user still just clicks Download and gets a working model.

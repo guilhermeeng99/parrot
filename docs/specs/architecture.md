@@ -60,7 +60,7 @@ The Rust process. Two jobs:
 - Python 3.11+, **PyTorch + `transformers`**, served by `uvicorn`. This is the actual voice engine — it wraps the **OmniVoice** model (default backend id `"omnivoice"`).
 - **Why Python:** the model is PyTorch. There is no pure-Rust inference path, so the engine is a separate process the Rust shell babysits.
 - **Owns all durable state**: the SQLite database, all reference/generated audio on disk, and the settings store (see §7). No other process writes to `parrot_data/`.
-- The **only** process that needs a GPU. Device is auto-detected (**CUDA / MPS / ROCm / CPU**) at model-load time and reported to the UI via `GET /engine/status` (§4); the UI and Rust shell are otherwise device-agnostic. See [device-detection.md](./device-detection.md).
+- The **only** process that needs a GPU. Device is auto-detected (**CUDA / CPU**) at model-load time and reported to the UI via `GET /engine/status` (§4); the UI and Rust shell are otherwise device-agnostic. See [device-detection.md](./device-detection.md).
 - **Bound to `127.0.0.1` only** by default. Parrot ships **no authentication**; binding to `0.0.0.0` would expose every route to the LAN. Loopback-only is the security boundary.
 - Model output is **24 kHz**. The model supports ~600 zero-shot languages (default `language = "Auto"`).
 
@@ -120,12 +120,9 @@ Checking
 
 ### 3.3 — Graceful shutdown on window close
 
-- Closing the **main** window does **not** quit the app. The window is hidden and removed from the taskbar; the sidecar keeps running. Quit happens only via the tray **Quit** item (or platform quit), which sets an internal `quitting` flag and exits.
-- On the real exit event, the supervisor shuts the sidecar down gracefully:
-  - **Unix:** send `SIGTERM`, wait up to **2 s** for a clean exit, then `SIGKILL` if it hasn't stopped.
-  - **Windows:** terminate the child process directly.
-  - Either way, the supervisor `wait()`s on the child so no zombie is left behind.
-- The sidecar's own FastAPI lifespan shutdown unloads the model, frees GPU memory, runs GC, and closes connection pools — so a clean `SIGTERM` releases VRAM promptly.
+- Closing the **main** window does **not** quit the app. The window is hidden and removed from the taskbar; the sidecar keeps running. Quit happens only via the tray **Quit** item, which sets an internal `quitting` flag and exits.
+- On the real exit event, the supervisor shuts the sidecar down gracefully: it terminates the child process and `wait()`s on it so no zombie is left behind.
+- The sidecar's own FastAPI lifespan shutdown unloads the model, frees GPU memory, runs GC, and closes connection pools — so a clean teardown releases VRAM promptly.
 
 ### 3.4 — Restart-on-crash with backoff
 
@@ -138,7 +135,7 @@ Checking
 | Situation on `:3900` | Supervisor action |
 |----------------------|-------------------|
 | Healthy Parrot sidecar already serving | **Attach** — reuse it, go to `Ready`. No second spawn. |
-| Something listening, but **not** healthy Parrot | **Take ownership** — kill the orphan (Unix: `lsof -ti :3900` → `SIGKILL`), wait ~500 ms, then spawn. |
+| Something listening, but **not** healthy Parrot | **Take ownership** — find the process holding `:3900` and kill it, wait ~500 ms, then spawn. |
 | Nothing listening | Spawn normally. |
 
 Single-instance is enforced at the app level: a second Parrot launch focuses the existing window instead of starting a competing sidecar.
@@ -167,7 +164,7 @@ The sidecar exposes a small REST surface (full shapes in [ipc-contract.md](./ipc
 - `GET /settings/hf-token` (masked) · `POST /settings/hf-token` (set) · `DELETE /settings/hf-token` (clear). The token is optional and only needed for gated model download; resolution order is (1) the in-app encrypted setting in the `settings` table (per-install Fernet key, the default path) then (2) the `HF_TOKEN` environment variable (documented power-user override).
 
 **Engine / device status (read-only)**
-- `GET /engine/status` → `{ "active": "omnivoice", "device": "<id>" }` where `device ∈ {"cuda","mps","cpu"}` (ROCm hardware is supported and reports as `cuda`) (an optional human label may appear as `"device_label"`). Parrot ships a single fixed engine; there is **no** engine picker and no `backends` array. This is the **one** place the active device is reported to the UI.
+- `GET /engine/status` → `{ "active": "omnivoice", "device": "<id>" }` where `device ∈ {"cuda","cpu"}` (an optional human label may appear as `"device_label"`). Parrot ships a single fixed engine; there is **no** engine picker and no `backends` array. This is the **one** place the active device is reported to the UI.
 
 **Health (supervisor only)**
 - `GET /healthz` → `{"status":"ok"}` — used by the Rust supervisor for liveness polling (§3.2). Not part of the UI's normal flow; carries no device field.
@@ -217,10 +214,10 @@ ready ──(idle timeout on the engine)──► idle   (model unloaded to free
 - **Sidecar healthy but model not loaded.** `/healthz` green (`{"status":"ok"}`) ≠ ready to synthesize. The UI must read the model-status field, not infer readiness from health.
 - **First-run download is slow / flaky.** Dep + model download can take many minutes; the 300 s health deadline plus visible per-line bootstrap logs keep the splash honest. A dead child during polling → `Failed` with stderr tail, not an infinite spinner.
 - **Stale/zombie sidecar from a previous run** holding `:3900` after an unclean exit → port-takeover path (§3.5) reclaims it; Clean & Retry kills it explicitly.
-- **Window closed vs app quit.** Closing the main window only hides it (sidecar keeps running, VRAM stays held until idle-unload). Only tray-Quit triggers `SIGTERM`/teardown. A spec or test that assumes "close window = engine stops" is wrong.
+- **Window closed vs app quit.** Closing the main window only hides it (sidecar keeps running, VRAM stays held until idle-unload). Only tray-Quit triggers teardown. A spec or test that assumes "close window = engine stops" is wrong.
 - **GPU OOM mid-generation.** Surfaces as a 5xx with the real message; the engine frees VRAM on the next idle sweep. Multi-job VRAM is bounded by the engine's worker pool sizing.
 - **Foreign loopback hosts.** The sidecar binds `127.0.0.1` only; a `0.0.0.0` bind is an explicit power-user opt-in (env var) and is never the default — it would expose an unauthenticated API to the LAN.
-- **Dev vs packaged divergence.** `:3901` exists only under `bun run dev`. In a packaged build the UI loads from bundled static assets; nothing should hardcode `:3901` as a runtime dependency. Per [../../CLAUDE.md](../../CLAUDE.md), any default behavior must be identical on macOS/Windows/Linux — platform-specific code is allowed (kill-by-port, signal vs terminate), but the *user-visible* lifecycle must not diverge.
+- **Dev vs packaged divergence.** `:3901` exists only under `bun run dev`. In a packaged build the UI loads from bundled static assets; nothing should hardcode `:3901` as a runtime dependency. The dev and packaged builds must present the same user-visible lifecycle (Windows 10/11, x64).
 
 ---
 
@@ -234,10 +231,10 @@ The **Python sidecar is the sole owner** of durable state. The Rust shell and th
 | `parrot_data/outputs/` | sidecar | Generated audio (WAV, 24 kHz) |
 | `parrot_data/parrot.db` | sidecar | SQLite (WAL, `foreign_keys` ON) — `voice_profiles`, `generation_history`, `settings` |
 | `parrot_data/` settings rows | sidecar | `settings` key/value store; secrets (e.g. HF token) stored encrypted |
-| App log dir (per-OS) | Rust shell | `backend.log`, `backend_err.log` (sidecar stdout/stderr), Tauri logs |
+| App log dir | Rust shell | `backend.log`, `backend_err.log` (sidecar stdout/stderr), Tauri logs |
 | `parrot_data/.venv` | Rust shell | Bootstrapped venv + synced backend sources (managed only by the supervisor; see [packaging.md](./packaging.md)) |
 
-Data-dir location is per-OS (`~/Library/Application Support/…` on macOS, `%APPDATA%\…` on Windows, `~/.<app>` / XDG on Linux) and is overridable via env var. **`parrot_data/` must survive upgrades with no manual migration** — the DB is created idempotently and evolved via alembic with a tested upgrade path (per [../../CLAUDE.md](../../CLAUDE.md)).
+Data-dir location is `%APPDATA%\Parrot\…` (overridable via env var). **`parrot_data/` must survive upgrades with no manual migration** — the DB is created idempotently and evolved via alembic with a tested upgrade path (per [../../CLAUDE.md](../../CLAUDE.md)).
 
 ### Tables touched
 
@@ -263,7 +260,7 @@ This is summarized here intentionally — full detail (externalBin layout, resou
 - [synthesis.md](./synthesis.md) — synthesis parameters & playback
 - [first-run-setup.md](./first-run-setup.md) — model download & setup surface
 - [packaging.md](./packaging.md) — bundle layout, `externalBin`, `uv` bootstrap detail
-- [device-detection.md](./device-detection.md) — CUDA / MPS / ROCm / CPU selection
+- [device-detection.md](./device-detection.md) — CUDA / CPU selection
 - [settings.md](./settings.md) — HF token store & appearance (theme/zoom)
 - [design-system.md](./design-system.md) — palette tokens, theme model
-- [../../CLAUDE.md](../../CLAUDE.md) — project conventions & cross-platform constraints
+- [../../CLAUDE.md](../../CLAUDE.md) — project conventions & local-first constraints

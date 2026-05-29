@@ -18,12 +18,12 @@ This is the source of truth for Parrot. Code conforms to these docs, not the oth
 | [specs/synthesis.md](specs/synthesis.md) | Speak typed text in a cloned voice (the `/generate` path). |
 | [specs/voice-profiles.md](specs/voice-profiles.md) | The voice library: CRUD, lock/unlock for reproducibility. |
 | [specs/first-run-setup.md](specs/first-run-setup.md) | First-run model download, venv bootstrap, sidecar spawn, HF token. |
-| [specs/device-detection.md](specs/device-detection.md) | GPU/CPU auto-detect (CUDA/MPS/ROCm/CPU) and cross-platform parity. |
+| [specs/device-detection.md](specs/device-detection.md) | GPU/CPU auto-detect (CUDA/CPU) on Windows. |
 | [specs/ipc-contract.md](specs/ipc-contract.md) | The complete frontend↔sidecar API + Tauri command surface. |
 | [specs/settings.md](specs/settings.md) | Appearance, engine status, optional HF token entry. |
 | [specs/design-system.md](specs/design-system.md) | The design system: Calendly "Sky Blueprint" light theme (adopted from Toolzy), Tailwind v4 `@theme` tokens, Montserrat, the Svelte component inventory. |
 | [specs/ui-ux.md](specs/ui-ux.md) | Application UI/UX: app shell, screen-by-screen flows (Setup/Clone/Speak/Profile/Settings), interaction states, microcopy, accessibility-in-context. |
-| [specs/packaging.md](specs/packaging.md) | Tauri bundle + Python sidecar, cross-platform installers, updater. |
+| [specs/packaging.md](specs/packaging.md) | Tauri bundle + Python sidecar, Windows MSI installer, updater. |
 
 ## How to use these specs
 

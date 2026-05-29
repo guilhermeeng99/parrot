@@ -1,8 +1,8 @@
 # Packaging & Distribution
 
-How Parrot is built into per-OS installers, how the Python voice engine is shipped invisibly inside the bundle, what is bundled vs. downloaded on first run, how builds are signed/notarized, and how the auto-updater is wired to Parrot's own GitHub releases. See [../../CLAUDE.md](../../CLAUDE.md) for the project constraints this spec inherits (cross-platform parity, local-first, no telemetry).
+How Parrot is built into a **Windows MSI installer**, how the Python voice engine is shipped invisibly inside the bundle, what is bundled vs. downloaded on first run, how builds are code-signed, and how the auto-updater is wired to Parrot's own GitHub releases. Parrot is Windows-only (Windows 10/11, x64 — see [../../CLAUDE.md](../../CLAUDE.md) §Platform Scope); there are no macOS or Linux artifacts. See [../../CLAUDE.md](../../CLAUDE.md) for the project constraints this spec inherits (local-first, no telemetry).
 
-Parrot is a focused fork of OmniVoice Studio: it keeps the voice-cloning engine and strips dubbing, ASR/dictation, the gallery, batch, the multi-engine picker, and the C++ GGUF backend. The packaging surface shrinks accordingly — one engine (`omnivoice`, pure-Python via `transformers`), no C++ binary, smaller installers.
+Parrot is a focused fork of OmniVoice Studio: it keeps the voice-cloning engine and strips dubbing, ASR/dictation, the gallery, batch, the multi-engine picker, and the C++ GGUF backend. The packaging surface shrinks accordingly — one engine (`omnivoice`, pure-Python via `transformers`), no C++ binary, a smaller installer.
 
 ---
 
@@ -17,9 +17,9 @@ BundleConfig (frontend/src-tauri/tauri.conf.json → "bundle")
                                                  #   com.debpalash.omnivoice-studio
   version           : SemVer, matches release tag (no leading "v"); currently 0.0.1, declared
                       in 4 manifests (see Invariants — consolidation is a TODO)
-  targets           : ["dmg", "app", "msi", "deb", "appimage"]   # Phase-3 target; current config uses "all"
+  targets           : ["msi"]                    # Windows MSI only (no dmg/app/deb/appimage)
   createUpdaterArtifacts : true                  # Phase-3; emits *.sig + latest.json for the updater
-  externalBin       : ["binaries/uv"]            # Phase-3; ffmpeg/ffprobe DROPPED (no dub/ASR path)
+  externalBin       : ["binaries/uv.exe"]        # Phase-3; ffmpeg/ffprobe DROPPED (no dub/ASR path)
   resources         : ["../../sidecar/pyproject.toml",
                        "../../sidecar/uv.lock",
                        "../../README.md",
@@ -33,8 +33,8 @@ UpdaterConfig (tauri.conf.json → "plugins.updater")
   dialog            : false                       # Svelte UI renders the update prompt, not Tauri
 
 ReleaseArtifact (uploaded to GitHub Releases per tag)
-  per-OS installer  : Parrot_<version>_<arch>.{dmg,msi,deb,AppImage}
-  updater bundle    : <installer>.{tar.gz|zip} + .sig    # signed with the minisign private key
+  installer         : Parrot_<version>_x64_en-US.msi
+  updater bundle    : <installer>.zip + .sig             # signed with the minisign private key
   latest.json       : { version, notes, pub_date, platforms{ <target-triple>{ signature, url } } }
 ```
 
@@ -53,25 +53,24 @@ ReleaseArtifact (uploaded to GitHub Releases per tag)
   client rejects it (Tauri updater enforces this; do not disable signature checks).
 ```
 
-> **Phase-3 note.** The `targets`/`externalBin`/`createUpdaterArtifacts`/updater blocks
-> above describe the Phase-3 bundling target. The committed `tauri.conf.json` intentionally
-> uses `"targets": "all"` with no `externalBin` and no updater block yet, so this gap is
-> by design, not drift — the full bundle config lands in Phase 3.
+> **Phase-3 note.** The committed `tauri.conf.json` sets `"targets": ["msi"]` but does not yet
+> declare `externalBin`/`resources`/`createUpdaterArtifacts`/updater — those (the `uv` sidecar
+> bundling + signed updater) land in Phase 3, so that gap is by design, not drift.
 
 ---
 
 ## Business Rules
 
-1. **Phase-3 target — bundle targets are fixed per OS.** `bundle.targets` will be `["dmg", "app", "msi", "deb", "appimage"]`. macOS produces a `.app` and a `.dmg`; Windows produces a `.msi`; Linux produces a `.deb` and an AppImage. CI runs the matching `tauri build` on each host OS — there is no cross-compilation of the native shell. *(The committed Phase-1 `tauri.conf.json` uses `"targets": "all"`; the per-OS list lands in Phase 3 — see the Phase-3 note above.)*
-2. **Phase-3 target — the Python engine ships as source + a `uv` bootstrap, not as a frozen binary, by default.** The sidecar source tree (`sidecar/`), `sidecar/pyproject.toml`, and `sidecar/uv.lock` will be declared as Tauri `resources`, and the `uv` binary will be the only `externalBin`. On first launch the Rust supervisor materializes a virtualenv from the bundled lockfile (see Rule 4). This is the planned default packaging mode; the PyInstaller-frozen alternative is documented below as a trade-off, not the default. *(The committed Phase-1 `tauri.conf.json` declares no `externalBin`/`resources` yet.)*
-3. **Model weights are downloaded on first run, never bundled.** No `.safetensors`/checkpoint files appear in any installer. The OmniVoice model (24 kHz output) is fetched from the OmniVoice model repo on Hugging Face into the HF cache on first synthesize/first-run setup, surfaced through the setup-status + SSE progress stream. This keeps installers small and is the single biggest size lever inherited from the source (excluding model weights + CUDA wheels is what kept OmniVoice's `.deb`/`.msi` under the 2 GB GitHub Releases asset cap).
+1. **The bundle target is the Windows MSI.** `bundle.targets` is `["msi"]` — `tauri build` on a Windows host produces a single `.msi`. There are no macOS/Linux artifacts (out of scope). The committed `tauri.conf.json` already sets `["msi"]`.
+2. **Phase-3 target — the Python engine ships as source + a `uv` bootstrap, not as a frozen binary, by default.** The sidecar source tree (`sidecar/`), `sidecar/pyproject.toml`, and `sidecar/uv.lock` will be declared as Tauri `resources`, and the `uv.exe` binary will be the only `externalBin`. On first launch the Rust supervisor materializes a virtualenv from the bundled lockfile (see Rule 4). This is the planned default packaging mode; the PyInstaller-frozen alternative is documented below as a trade-off, not the default. *(The committed Phase-1 `tauri.conf.json` declares no `externalBin`/`resources` yet.)*
+3. **Model weights are downloaded on first run, never bundled.** No `.safetensors`/checkpoint files appear in any installer. The OmniVoice model (24 kHz output) is fetched from the OmniVoice model repo on Hugging Face into the HF cache on first synthesize/first-run setup, surfaced through the setup-status + SSE progress stream. This keeps the installer small and is the single biggest size lever inherited from the source (excluding model weights + CUDA wheels is what kept the installer under the 2 GB GitHub Releases asset cap).
 4. **First-launch venv bootstrap is idempotent and host-resolved.** On first run with no usable venv, the supervisor runs `uv venv` (Python 3.11+) then `uv sync --no-dev` against the bundled `uv.lock` (`--no-dev` keeps the test-only `dev` group — pytest/httpx — out of the shipped runtime venv), into `parrot_data/.venv` (a writable location under `parrot_data/`, never inside the read-only app bundle). A completed venv is detected and reused on subsequent launches; the engine is only started after the venv exists and `GET /healthz` returns healthy. The install (`uv venv` + `uv sync`) and run (start → poll health) logic lives in the Rust sidecar supervisor and runs invisibly inside the Tauri process — there are no standalone `scripts/install.sh`/`scripts/run.sh` helpers. The bootstrapped venv location is stated identically in [architecture.md](./architecture.md).
 5. **`ffmpeg`/`ffprobe` are not shipped.** OmniVoice bundled them as `externalBin` for video dubbing and demucs. Parrot has no dub/ASR/media-extraction path, so those binaries are removed from `externalBin`, shrinking every installer.
-6. **CUDA/NVIDIA wheels are excluded; inference defaults to CPU, GPU is opportunistic.** The packaged dependency set excludes `nvidia.*`, `triton`, and `flash_attn` (as the source `backend.spec` does). GPU acceleration (CUDA/MPS/ROCm) is used only when a user-installed driver is detected at runtime; it is never bundled. See [device-detection.md](./device-detection.md).
+6. **CUDA/NVIDIA wheels are excluded; inference defaults to CPU, GPU is opportunistic.** The packaged dependency set excludes `nvidia.*`, `triton`, and `flash_attn` (as the source `backend.spec` does). GPU acceleration (CUDA) is used only when a user-installed NVIDIA driver is detected at runtime; it is never bundled. See [device-detection.md](./device-detection.md).
 7. **The auto-updater points at Parrot's own releases.** `plugins.updater.endpoints` and `plugins.updater.pubkey` MUST be repointed to Parrot's GitHub repo and a freshly generated minisign keypair. Shipping with OmniVoice's endpoint or pubkey is a release-blocking bug — it would pull OmniVoice's `latest.json` and could not verify Parrot's signatures.
 8. **Updates are client-rendered.** `dialog: false` — the Svelte UI owns the "update available / downloading / restart" prompt via the typed updater client in `frontend/src/lib/api/`; Tauri does not draw its own dialog.
-9. **Code-signing is required for distributed builds, optional for local dev builds.** Release artifacts uploaded to GitHub MUST be signed/notarized per OS (see IPC/Signing below). Unsigned dev builds are allowed locally but MUST surface the OS warning honestly (see Edge Cases) rather than instruct users to disable security.
-10. **Default first-run behavior is identical across macOS/Windows/Linux.** Per the project's strict default-parity rule, the install-and-first-run experience (download installer → launch → venv bootstrap → model download → working clone/speak) must behave the same on all three platforms. Any platform that cannot do this in default mode is a P0: fix it on that platform or move the divergent piece behind explicit opt-in. No third option.
+9. **Code-signing is required for distributed builds, optional for local dev builds.** The release `.msi` uploaded to GitHub MUST be Authenticode-signed (see Signing notes below). Unsigned dev builds are allowed locally but MUST surface the SmartScreen warning honestly (see Edge Cases) rather than instruct users to disable security.
+10. **First-run behavior must be solid on Windows 10 and 11 (x64).** The install-and-first-run experience (download MSI → launch → venv bootstrap → model download → working clone/speak) must work on both Windows 10 and Windows 11. A first-run/default feature that fails on either is a P0.
 11. **App data survives upgrades with no manual migration.** `parrot_data/` (voice profiles, generated audio, SQLite DB, settings) lives outside the bundle and is untouched by installers/updates. Schema changes ship as alembic migrations applied by the engine on startup; the DB is created idempotently with WAL and `foreign_keys=ON`. An installer or updater MUST NOT delete or relocate `parrot_data/`.
 
 ---
@@ -95,7 +94,7 @@ Packaging touches three runtime contracts: the supervisor health gate, the first
 
 **Engine status (single-engine stub)**
 
-- `GET /engine/status` → `{"active":"omnivoice","device":"<id>"}` where `device` ∈ `{"cuda","mps","cpu"}` (ROCm hardware is supported and reports as `cuda`; an optional human label may be added as `device_label`). Read-only. This is the single place device is reported to the UI. Parrot ships exactly one engine; there is no picker and no switch endpoint. The packaged dependency set contains only the `omnivoice` (transformers) backend.
+- `GET /engine/status` → `{"active":"omnivoice","device":"<id>"}` where `device` ∈ `{"cuda","cpu"}` (an optional human label may be added as `device_label`). Read-only. This is the single place device is reported to the UI. Parrot ships exactly one engine; there is no picker and no switch endpoint. The packaged dependency set contains only the `omnivoice` (transformers) backend.
 
 **Updater (Tauri plugin, not an HTTP route)**
 
@@ -156,12 +155,12 @@ ready_to_restart  → relaunch            user confirms; app restarts onto new v
 
 ## Edge Cases
 
-- **Unsigned-build warning.** A locally built or community-built unsigned artifact triggers Gatekeeper (macOS: "Parrot can't be opened because Apple cannot check it"), SmartScreen (Windows: "Windows protected your PC"), or an AppImage exec-bit/permissions prompt (Linux). Release builds MUST be signed to avoid this; for unsigned dev builds, docs explain the warning honestly and the legitimate override path, and never tell users to globally disable Gatekeeper/SmartScreen.
+- **Unsigned-build warning.** A locally built or community-built unsigned `.msi` triggers Windows SmartScreen ("Windows protected your PC"). Release builds MUST be Authenticode-signed to avoid this; for unsigned dev builds, docs explain the warning honestly and the legitimate "More info → Run anyway" path, and never tell users to globally disable SmartScreen.
 - **Venv bootstrap offline.** First launch with no network and no `uv` cache cannot run `uv sync` and stalls in `bootstrapping_venv`. The UI must report "first launch needs internet to set up the engine," not hang. Mitigations available to power users mirror the source's restricted-network guidance in [../../CLAUDE.md](../../CLAUDE.md) (`UV_PYTHON_INSTALL_MIRROR`, `UV_PYTHON_PREFERENCE=only-system`, bumped `UV_HTTP_TIMEOUT`/`UV_HTTP_RETRIES`).
 - **Antivirus false-positive on the sidecar.** The bundled `uv` binary and the spawned Python process can trip heuristic AV (unsigned native exe spawning a child, listening on `127.0.0.1:3900`). Signing the installer reduces this; docs list the data dir and the loopback-only port so users can allowlist Parrot. The sidecar binds `127.0.0.1` only — never `0.0.0.0` — so it is not a network-exposed service.
 - **First-run model download interrupted.** Partial HF cache from a dropped download must resume or re-verify, not corrupt. `/setup/status` stays `models_ready: false` until the full weight set is present; the SSE stream surfaces failure and the UI offers retry. No partial model is ever marked ready.
 - **Updater pubkey/endpoint not repointed.** If a build accidentally ships OmniVoice's `pubkey` or `endpoints`, signature verification of Parrot's own artifacts fails (wrong key) or the wrong `latest.json` is fetched. CI MUST assert the configured identifier, endpoint host, and pubkey are Parrot's before publishing.
-- **Disk full / read-only volume during venv bootstrap.** macOS apps launched from a read-only DMG, or low-disk conditions, break `uv sync`. The venv MUST target a writable path under `parrot_data/` (`parrot_data/.venv`), never inside the mounted/read-only bundle; the UI reports the specific failure (out of space / read-only) rather than a generic crash.
+- **Disk full / read-only location during venv bootstrap.** Low-disk conditions, or installing into a read-only/locked location, break `uv sync`. The venv MUST target a writable path under `parrot_data/` (`parrot_data/.venv`), never inside the installed program-files bundle; the UI reports the specific failure (out of space / read-only) rather than a generic crash.
 - **Stale venv after a dependency bump.** A Parrot update may change `uv.lock`. On launch the supervisor compares the bundled lock against the existing venv's resolved state and re-runs `uv sync` if they diverge, so an upgraded app never runs against a stale environment.
 - **GitHub Releases 2 GB asset cap.** Excluding model weights, CUDA/NVIDIA wheels, the C++ GGUF binary, and `ffmpeg`/`ffprobe` keeps each Parrot artifact comfortably under the per-asset limit. A build that exceeds it indicates an excludes regression (e.g., CUDA wheels leaking back in).
 
@@ -175,13 +174,11 @@ ready_to_restart  → relaunch            user confirms; app restarts onto new v
 | `frontend/src-tauri/binaries/uv` | The only `externalBin`. Drives first-launch venv bootstrap. (`ffmpeg`/`ffprobe` removed.) |
 | `sidecar/pyproject.toml`, `sidecar/uv.lock` | Bundled as `resources`; the lockfile is the source of truth for the first-run `uv sync`. The `version` (currently 0.0.1) is duplicated across `sidecar/pyproject.toml`, `frontend/package.json`, `frontend/src-tauri/Cargo.toml`, and `frontend/src-tauri/tauri.conf.json` — consolidating to a single source is a TODO. |
 | `sidecar/` | Python FastAPI engine source, bundled as a `resource` and run from the bootstrapped venv. (Replaces OmniVoice's `backend` + `omnivoice` resource entries.) |
-| `backend.spec` (PyInstaller) | The *alternative* frozen-bundle path. Trade-off: a self-contained, no-bootstrap binary (works fully offline after install, no first-run `uv sync`) but a much larger installer, heavier signing/notarization surface, and the `collect_all` ML-dependency fragility documented in the spec. The default `uv`-bootstrap path keeps installers small at the cost of a one-time online first run; PyInstaller is the option to reach for only if offline-install becomes a hard requirement. Parrot's frozen spec drops the dub/ASR/`mlx`/`ffmpeg` collection entirely. |
+| `backend.spec` (PyInstaller) | The *alternative* frozen-bundle path. Trade-off: a self-contained, no-bootstrap binary (works fully offline after install, no first-run `uv sync`) but a much larger installer, heavier code-signing surface, and the `collect_all` ML-dependency fragility documented in the spec. The default `uv`-bootstrap path keeps the installer small at the cost of a one-time online first run; PyInstaller is the option to reach for only if offline-install becomes a hard requirement. Parrot's frozen spec drops the dub/ASR/`ffmpeg` collection entirely. |
 | `latest.json` + `*.sig` (per release) | Updater manifest + minisign signatures, emitted by `createUpdaterArtifacts: true`, uploaded to Parrot's GitHub Releases. |
 | `parrot_data/` (user machine) | Voice profiles, generated audio, SQLite DB (WAL, `foreign_keys=ON`), settings, and the bootstrapped venv at `parrot_data/.venv`. Outside the bundle; survives installs/updates with no manual migration; never deleted or relocated by installers. |
 
-### Signing / notarization notes
+### Signing notes
 
-- **macOS:** Developer ID Application signing of the `.app`, then notarization + stapling of the `.dmg`. The bundled `uv` binary and any native libs inside the venv must be covered by the signed/notarized envelope (or the venv lives outside the bundle and is exempted, since it is generated post-install in `parrot_data/.venv`). `minimumSystemVersion` follows the source baseline (`12.0`). Unnotarized builds hit Gatekeeper (see Edge Cases).
-- **Windows:** Authenticode-sign the `.msi` (and ideally the bundled `uv.exe`) with an OV/EV certificate. EV certs avoid SmartScreen reputation warm-up; OV certs accrue reputation over downloads. Unsigned MSIs trigger SmartScreen.
-- **Linux:** No OS-level code signing. `.deb` integrity comes from the package/repo; AppImages may be GPG-signed and should ship with their `.sig`. Document the AppImage exec-bit step.
-- **Updater signing (all OSes):** independent of OS code signing. Every updater artifact is minisign-signed with Parrot's private key; clients verify against `plugins.updater.pubkey`. Keep the private key out of the repo (CI secret); rotating it requires shipping a build with the new `pubkey` before old clients can verify new releases.
+- **Windows (Authenticode):** Sign the `.msi` (and ideally the bundled `uv.exe`) with an OV/EV certificate. EV certs avoid SmartScreen reputation warm-up; OV certs accrue reputation over downloads. Unsigned MSIs trigger SmartScreen (see Edge Cases). This is the only OS-level signing Parrot does (Windows-only).
+- **Updater signing:** independent of Authenticode. Every updater artifact is minisign-signed with Parrot's private key; clients verify against `plugins.updater.pubkey`. Keep the private key out of the repo (CI secret); rotating it requires shipping a build with the new `pubkey` before old clients can verify new releases.

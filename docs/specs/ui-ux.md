@@ -173,7 +173,7 @@ Owner: [settings.md](./settings.md). Three groups, each its own **Card**, in one
 - **Appearance** Card:
   - In V1 this is informational: copy "Parrot uses a single light theme. Dark mode is on the roadmap." No theme toggle, no zoom control (both backlog per scope locks, §0). The Card still exists so the group is discoverable when dark mode lands. (Appearance prefs remain frontend-local, [settings.md §2](./settings.md); V1 simply pins `theme=light` and ships no control.)
 - **Engine status** Card (read-only):
-  - The **Engine status label** sources `GET /engine/status` → `{"active":"omnivoice","device":"<id>"}`. The `device` field is one of `cuda`/`mps`/`cpu` (ROCm hardware reports as `cuda`). Render: a **Badge** "Engine: OmniVoice" + a device line "Running on **{device_label or device}**" mapping the device to friendly text ("NVIDIA GPU (CUDA)", "Apple GPU (Metal)", "CPU — slower but works"); an AMD-on-ROCm card reports `cuda`, so its "AMD GPU (ROCm)" label comes from the optional `device_label`. One fixed engine, **no picker** ([settings.md Rule 1](./settings.md)).
+  - The **Engine status label** sources `GET /engine/status` → `{"active":"omnivoice","device":"<id>"}`. The `device` field is one of `cuda`/`cpu`. Render: a **Badge** "Engine: OmniVoice" + a device line "Running on **{device_label or device}**" mapping the device to friendly text ("NVIDIA GPU (CUDA)", "CPU — slower but works"). One fixed engine, **no picker** ([settings.md Rule 1](./settings.md)).
   - While the sidecar is still starting, a `slate-blue` "Engine starting…" placeholder with a Spinner — the rest of Settings stays interactive ([settings.md Edge Cases](./settings.md)).
   - A quiet link "View backend log" (opens the rotating `backend.log` via the native shell) — the only diagnostics affordance; there is no Logs tab ([settings.md Non-goals](./settings.md)).
 - **Hugging Face token** Card (optional):
@@ -319,5 +319,5 @@ The DS guarantees the primitives (focus rings, contrast, hit targets); this sect
 - [architecture.md](./architecture.md) — three-process model, ports, supervisor lifecycle, frontend stores.
 - [ipc-contract.md](./ipc-contract.md) — full REST request/response shapes and headers.
 - [device-detection.md](./device-detection.md) — how the `device` string in the Engine status label is computed.
-- [../../CLAUDE.md](../../CLAUDE.md) — project conventions, cross-platform parity, local-first and beta-cadence constraints.
+- [../../CLAUDE.md](../../CLAUDE.md) — project conventions, local-first and beta-cadence constraints.
 - [../ROADMAP.md](../ROADMAP.md) — milestone context (dark mode and UI-zoom are backlog).

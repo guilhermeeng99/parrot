@@ -2,7 +2,7 @@
 
 A **voice profile** is a reusable clone of a voice: a reference audio sample plus the metadata Parrot needs to speak new text in that voice. The library is the CRUD layer over the `voice_profiles` table — list, create, read, update, delete — plus the **lock/unlock** reproducibility feature that pins a generated output as the profile's deterministic reference. Profiles are the only first-class user-created entity in Parrot; everything in the [synthesis](./synthesis.md) flow resolves a voice through a profile (or an ad-hoc reference upload).
 
-Conventions and cross-platform rules: [../../CLAUDE.md](../../CLAUDE.md).
+Conventions: [../../CLAUDE.md](../../CLAUDE.md).
 
 ---
 
@@ -25,7 +25,7 @@ voice_profiles
 Invariants:
 
 - `id` is generated server-side as `uuid4()[:8]`. The client never supplies it.
-- All `*_path` columns store a **bare filename**, never an absolute path. The on-disk location is derived at read time by joining with `parrot_data/voices/`. This keeps the DB portable across machines and OS path separators (cross-platform parity, [../../CLAUDE.md](../../CLAUDE.md)).
+- All `*_path` columns store a **bare filename**, never an absolute path. The on-disk location is derived at read time by joining with `parrot_data/voices/`. This keeps the DB portable across machines (paths are re-joined at read time).
 - `name` is always stored trimmed and is never the empty string (enforced on create and update).
 - `is_locked` and `locked_audio_path` move together: `is_locked = 1` ⟺ `locked_audio_path` is a non-empty filename; `is_locked = 0` ⟺ `locked_audio_path = ''`. No third state is valid.
 - `seed` is non-null **only** while locked. Unlock clears it back to `NULL`.
@@ -179,7 +179,7 @@ Parrot has no event bus or pub/sub channel — `ws://127.0.0.1:3900/ws/tts` is t
 - **Create with a non-`.wav` upload.** The extension is taken from the uploaded filename and preserved in `ref_audio_path`; a filename with no extension defaults to `.wav`.
 - **Create DB failure after file write.** The orphaned audio file is removed before the error surfaces — no dangling files in `parrot_data/voices/`.
 - **Empty library.** `GET /profiles` returns `[]`; the store lands in `loaded` with an empty list, and the UI shows the "clone your first voice" empty state, not an error.
-- **Path portability.** Because only filenames are stored, a `parrot_data/` directory copied between macOS/Windows/Linux resolves audio correctly on the new host (paths are re-joined at read time).
+- **Path portability.** Because only filenames are stored, a `parrot_data/` directory copied between machines resolves audio correctly on the new host (paths are re-joined at read time).
 
 ---
 
