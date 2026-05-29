@@ -14,7 +14,9 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = [] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
 # Tiny blocking HTTP client for the loopback /healthz probe (no TLS needed).
 ureq = { version = "2", default-features = false }
+
+# NOTE: serde / serde_json are intentionally NOT direct deps yet — no command
+# serializes a custom struct in Phase 1 (returns are u16/bool, handled by
+# tauri's own serde). Add them back when a Phase-2 command returns a real payload.

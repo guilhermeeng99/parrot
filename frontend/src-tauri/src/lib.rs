@@ -17,6 +17,13 @@ fn sidecar_ready(state: tauri::State<SidecarState>) -> bool {
     state.ready.load(Ordering::SeqCst)
 }
 
+/// Whether the supervisor permanently gave up (the sidecar crash-looped). Latched,
+/// so the UI gets the terminal state even if it missed the `sidecar-failed` event.
+#[tauri::command]
+fn sidecar_failed(state: tauri::State<SidecarState>) -> bool {
+    state.failed.load(Ordering::SeqCst)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let port = supervisor::resolve_port();
@@ -29,7 +36,11 @@ pub fn run() {
             supervisor::start(app.handle().clone(), port);
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![backend_port, sidecar_ready])
+        .invoke_handler(tauri::generate_handler![
+            backend_port,
+            sidecar_ready,
+            sidecar_failed
+        ])
         .build(tauri::generate_context!())
         .expect("error while building the Parrot application")
         .run(|app_handle, event| {
