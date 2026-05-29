@@ -59,23 +59,24 @@ Every error response from the sidecar is a FastAPI `HTTPException`, serialized a
 
 ### Typed-client mirror
 
-The **target** client mirrors this envelope with one class and a set of helpers. This is the Phase-2 shape the client grows into — the **current** `frontend/src/lib/api/client.ts` provides only `ApiError(path, status)` (positional, no `detail`) and `apiJson<T>()`. The fuller surface below is the spec goal, not yet present:
+The client mirrors this envelope with one class and a set of helpers (`frontend/src/lib/api/client.ts`):
 
 ```ts
-// frontend/src/lib/api/client.ts — Phase-2 target shape
 export class ApiError extends Error {
-  status?: number;
+  status: number;
   detail?: unknown;            // the parsed `detail` string from the envelope
 }
 
 // readError() parses { detail } | { error } | raw text, in that order.
-// apiFetch()  → Response, throws ApiError on !res.ok
-// apiJson<T>() → parsed JSON
-// apiPost<T>() → FormData passes through untouched; objects are JSON-encoded
-// apiDelete()  → Response
+// apiFetch()    → Response, throws ApiError on !res.ok
+// apiJson<T>()  → parsed JSON (GET)
+// apiPost<T>()  → FormData passes through untouched; objects are JSON-encoded
+// apiPostRaw()  → raw Response (callers read X-* headers / stream the body — used by /generate)
+// apiPut<T>() / apiDelete<T>() → parsed JSON
+// errMsg(e)     → user-facing message, preferring the sidecar `detail`
 ```
 
-Rules for the typed client (these govern the Phase-2 target client described above; the current Phase-1 client provides only `ApiError(path, status)` + `apiJson<T>()`):
+Rules for the typed client:
 
 1. One module per endpoint group: `generate.ts`, `profiles.ts`, `history.ts`, `setup.ts`, `engine.ts`, `health.ts`, `settings.ts`, `ttsStream.ts`. Each re-exports through `frontend/src/lib/api/index.ts`.
 2. Request/response shapes are declared as TS interfaces in `frontend/src/lib/api/types.ts` and must match the tables below field-for-field.
@@ -189,6 +190,7 @@ The synthesis log.
 | Method | Path | Returns | Notes |
 |--------|------|---------|-------|
 | `GET` | `/history` | `HistoryRow[]` | Newest first, capped at 50. |
+| `GET` | `/history/{id}/audio` | `audio/wav` file | Serves a past generation's WAV so the History list can replay it. `404` if the row or file is missing. |
 | `DELETE` | `/history` | `{ cleared: true }` | Deletes every row and its on-disk audio. |
 | `DELETE` | `/history/{id}` | `{ deleted: true }` | Deletes one row + its audio file. |
 
@@ -217,27 +219,31 @@ The model-gate + download flow the boot screen depends on. See [first-run-setup.
 | Method | Path | Returns | Notes |
 |--------|------|---------|-------|
 | `GET` | `/setup/status` | `SetupStatus` | Drives the "models ready?" boot gate. |
-| `POST` | `/setup/download` | `{ status: "download_started" }` | Starts the model download. `429` within 60 s of a prior failure. Progress arrives on the SSE stream. |
+| `POST` | `/setup/download` | `{ status: "download_started", repo_id }` | JSON body `{ repo_id }` (validated against the catalog → `400` if unknown). Starts the model download. `429` within 60 s of a prior failure. Progress arrives on the SSE stream. |
 | `GET` | `/setup/download-stream` | `text/event-stream` | SSE of download progress; one `DownloadEvent` per `data:` line; `: keepalive` every 30 s. |
 
 ```ts
 interface SetupStatus {
   models_ready: boolean;                      // false → show the download wizard
+  missing: { repo_id: string; label: string }[]; // required models not yet cached ([] when ready)
   hf_cache_dir: string;
   disk_free_gb: number;
   min_free_gb: number;                        // 10
   enough_disk: boolean;
 }
 
-// One SSE event (JSON in the `data:` field):
+// One SSE event (JSON in the `data:` field). Phase names match first-run-setup.md.
 interface DownloadEvent {
+  repo_id: string;
   filename: string;
   downloaded: number;                         // bytes
   total: number;                              // bytes (0 while resolving)
   pct: number;                                // 0.0–1.0
-  phase: 'download_start' | 'resolving' | 'download_retry'
-       | 'download_done' | 'download_error';
-  error?: string;                             // present on download_error / download_retry
+  phase: 'install_start' | 'resolving' | 'progress'
+       | 'install_retry' | 'install_done' | 'install_error';
+  error?: string;                             // present on install_error / install_retry
+  attempt?: number;                           // present on install_retry
+  rate?: number;                              // optional bytes/s readout
 }
 ```
 
@@ -253,14 +259,22 @@ The HF token is **optional** and needed only for gated model download. Resolutio
 
 | Method | Path | Body | Returns | Notes |
 |--------|------|------|---------|-------|
-| `GET` | `/settings/hf-token` | — | `{ has_token: boolean, masked: string }` | `masked` shows only the last 4 chars (e.g. `…ab12`), empty string when unset. |
-| `POST` | `/settings/hf-token` | json: `{ token: string }` | `{ has_token: true, masked: string }` | Encrypts and persists the token to the `settings` table; `400` on an empty token. |
-| `DELETE` | `/settings/hf-token` | — | `{ has_token: false }` | Clears the stored token (the `HF_TOKEN` env var, if set, still applies as an override). |
+| `GET` | `/settings/hf-token` | — | `TokenState` | The masked cascade (`app` + `env` sources). Never the raw token. |
+| `POST` | `/settings/hf-token` | json: `{ token: string }` | `TokenState` | Encrypts + persists the token, then re-validates (`whoami`); `400` on an empty token. |
+| `DELETE` | `/settings/hf-token` | — | `TokenState` | Clears the stored token (keeps the salt); the `HF_TOKEN` env var, if set, still applies as an override. |
 
 ```ts
-interface HfTokenStatus {
-  has_token: boolean;
-  masked: string;                              // last 4 chars only, or "" when unset
+// The masked token cascade — settings.md owns this model. `masked` is "hf_…<last 3>".
+interface TokenSource {
+  source: 'app' | 'env';
+  set: boolean;
+  masked: string | null;                       // "hf_…<last 3>", or null when unset
+  whoami_user: string | null;
+  whoami_ok: boolean;
+}
+interface TokenState {
+  active: 'app' | 'env' | null;                // highest-priority source that validated
+  sources: TokenSource[];
 }
 ```
 

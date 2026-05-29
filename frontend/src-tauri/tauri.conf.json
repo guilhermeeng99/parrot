@@ -28,6 +28,17 @@
   "bundle": {
     "active": true,
     "targets": ["msi"],
+    "createUpdaterArtifacts": true,
+    "externalBin": ["binaries/uv"],
+    "resources": {
+      "../../sidecar/app": "sidecar/app",
+      "../../sidecar/alembic": "sidecar/alembic",
+      "../../sidecar/main.py": "sidecar/main.py",
+      "../../sidecar/alembic.ini": "sidecar/alembic.ini",
+      "../../sidecar/pyproject.toml": "sidecar/pyproject.toml",
+      "../../sidecar/uv.lock": "sidecar/uv.lock",
+      "../../README.md": "README.md"
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -35,5 +46,14 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/guilhermeeng99/Parrot/releases/latest/download/latest.json"
+      ],
+      "pubkey": "PLACEHOLDER_REGENERATE_BEFORE_RELEASE",
+      "windows": { "installMode": "passive" }
+    }
   }
 }

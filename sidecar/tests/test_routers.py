@@ -1,15 +1,15 @@
-"""Phase-1 IPC-contract tests for the sidecar routers.
+"""IPC-contract tests for the always-on routers (health, engine) + port parsing.
 
 These assert the exact shapes the Rust supervisor and Svelte UI depend on
-(docs/specs/ipc-contract.md). Model loading is not involved — the engine status
-is a fixed stub in Phase 1 — so these run without a GPU or torch.
+(ipc-contract.md). The model is mocked (conftest), so they run without a GPU.
 """
 
 from fastapi.testclient import TestClient
 
 from app import config, create_app
 
-client = TestClient(create_app())
+# /engine/status is loopback-gated — give the client a 127.0.0.1 peer.
+client = TestClient(create_app(), client=("127.0.0.1", 50000))
 
 
 def test_healthz_returns_exact_contract():
@@ -26,6 +26,11 @@ def test_engine_status_shape():
     assert body["active"] == "omnivoice"
     # Windows-only: CUDA (NVIDIA) or CPU. No mps/rocm.
     assert body["device"] in {"cuda", "cpu"}
+
+
+def test_engine_status_rejects_non_loopback():
+    remote = TestClient(create_app(), client=("10.0.0.5", 4444))
+    assert remote.get("/engine/status").status_code == 403
 
 
 def test_port_defaults_to_3900(monkeypatch):

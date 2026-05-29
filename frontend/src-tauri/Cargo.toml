@@ -13,10 +13,17 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+# tray-icon: native tray (window hides to tray; tray Quit tears the app down).
+tauri = { version = "2", features = ["tray-icon"] }
+# Native glue plugins (called from Rust; no JS capability entries needed).
+tauri-plugin-dialog = "2"          # save-as dialog for WAV export
+tauri-plugin-opener = "2"          # reveal a file/folder in Explorer
+tauri-plugin-updater = "2"         # auto-updater (client-rendered, dialog:false)
+tauri-plugin-single-instance = "2" # focus the existing window on a second launch
 # Tiny blocking HTTP client for the loopback /healthz probe (no TLS needed).
 ureq = { version = "2", default-features = false }
-
-# NOTE: serde / serde_json are intentionally NOT direct deps yet — no command
-# serializes a custom struct in Phase 1 (returns are u16/bool, handled by
-# tauri's own serde). Add them back when a Phase-2 command returns a real payload.
+# Native WAV playback (play_audio / stop_audio). Windows uses WASAPI via cpal.
+rodio = { version = "0.20", default-features = false, features = ["wav", "symphonia-wav"] }
+# Command payload (de)serialization for typed returns to the UI.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

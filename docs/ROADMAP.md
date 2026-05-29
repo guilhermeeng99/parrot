@@ -42,16 +42,16 @@ Prove the architecture end-to-end with a trivial payload before any ML.
 
 Bring over the stripped OmniVoice engine and wire the two real features.
 
-- ☐ Implement `sidecar/` **fresh from the specs** (Path B — do **not** copy OmniVoice FSL code; reference its design only). Scope: `generate`, `profiles`, `setup`, `model_manager`, a single `omnivoice` backend. No GGUF, no dub/ASR/gallery/batch/marketplace/multi-engine.
-- ☐ Vendor the `omnivoice` model lib (Apache-2.0) as a dependency, import path unchanged
-- ☐ First-run model download gate ([first-run-setup.md](specs/first-run-setup.md))
-- ☐ Device auto-detect ([device-detection.md](specs/device-detection.md))
-- ☐ Svelte **Clone** screen: record/upload reference → save profile ([voice-cloning.md](specs/voice-cloning.md))
-- ☐ Svelte **Speak** screen: type text → pick profile → `/generate` → play/export ([synthesis.md](specs/synthesis.md))
-- ☐ Voice profile library: list, edit, delete, lock/unlock ([voice-profiles.md](specs/voice-profiles.md))
-- ☐ DB + alembic migrations carried over with a tested upgrade path
+- ☑ Implement `sidecar/` **fresh from the specs** (Path B — no OmniVoice FSL code copied). Scope: `generate`, `profiles`, `history`, `setup`, `settings`, `engine`, `ws`, plus `model_manager` + a single `omnivoice` backend. `core/` (config/paths/db/device/crypto/logging), `services/`, `routers/`. 69 pytest cases green with the model boundary mocked.
+- ☑ Vendor the `omnivoice` model lib (Apache-2.0): import path unchanged, isolated behind `app/engine/omnivoice_backend.py` and reached only via `model_manager.get_model()`. Lives in the `engine` optional-dependency extra; lazily imported. *(Real weights load + inference run only in an `--extra engine` build with a GPU/CPU model — not exercised headlessly; the boundary is mocked in tests.)*
+- ☑ First-run model download gate ([first-run-setup.md](specs/first-run-setup.md)) — `/setup/status` + `/setup/download` + SSE stream, cooldown, disk guard.
+- ☑ Device auto-detect ([device-detection.md](specs/device-detection.md)) — CUDA→CPU, fail-safe, worker sizing, lazy torch.
+- ☑ Svelte **Clone** screen: record/upload reference → save profile ([voice-cloning.md](specs/voice-cloning.md))
+- ☑ Svelte **Speak** screen: type text → pick profile → `/generate` → play/export ([synthesis.md](specs/synthesis.md))
+- ☑ Voice profile library: list, edit, delete, lock/unlock ([voice-profiles.md](specs/voice-profiles.md))
+- ☑ DB + alembic migrations with a tested upgrade path (idempotent `init_db` shares DDL with the `0001_initial` migration; migration upgrade/downgrade tested).
 
-**Exit:** on a clean machine, a user downloads the model, clones their voice, types a sentence, and hears it spoken. The smoke test exercises this whole path.
+**Exit:** the headless smoke test exercises frontend build → sidecar boot → health/engine/setup + a full profile CRUD round-trip. **Needs a real run to confirm:** the model download + a true clone→speak (requires the `engine` extra + GPU/CPU weights, not runnable in this environment).
 
 ---
 
@@ -59,24 +59,24 @@ Bring over the stripped OmniVoice engine and wire the two real features.
 
 Make the MVP solid on Windows 10/11 (x64) — the only supported platform ([CLAUDE.md Platform Scope](../CLAUDE.md)).
 
-- ☐ Windows (x64): CUDA + CPU device detect, HF-cache path-length fix, MSI installer
-- ☐ Sidecar packaging: `uv` as `externalBin`, venv bootstrap on first launch ([packaging.md](specs/packaging.md))
-- ☐ Code-sign the MSI so release builds don't trip SmartScreen
+- ☑ Windows (x64): CUDA + CPU device detect (done in the sidecar), HF-cache path-length fix (`config.prepare_environment` redirects to `%LOCALAPPDATA%\Parrot\hf_cache` + disables symlinks), MSI target configured (`bundle.targets = ["msi"]`). *(Producing/validating the `.msi` needs a full `tauri build` on a Windows host with WiX — config is in place; the bundle itself isn't built headlessly here.)*
+- ☑ Sidecar packaging: `uv` declared as the only `externalBin`, sidecar source as bundle `resources`; supervisor venv bootstrap on first launch (`uv venv` + `uv sync --no-dev --extra engine`), attach-if-healthy, port takeover, log piping, retry/clean ([packaging.md](specs/packaging.md)).
+- ◐ Code-sign the MSI so release builds don't trip SmartScreen — **documented** (Authenticode OV/EV, signing notes in packaging.md); the only blocker is a signing certificate, which can't be provisioned here. SmartScreen guidance for unsigned dev builds is honest in the docs.
 
-**Exit:** the MSI installer passes the clone→speak smoke test from a clean install on both Windows 10 and Windows 11.
+**Exit:** the MSI installer passes the clone→speak smoke test from a clean install on Windows 10 + 11. **Blocked only on a real Windows `tauri build` + a signing cert** — all code/config is in place.
 
 ---
 
 ## Phase 4 — Polish toward 1.0
 
-- ☐ Settings: appearance, engine status, optional HF token ([settings.md](specs/settings.md))
-- ☐ Design-system pass: consistent components, dark/light, accessibility ([design-system.md](specs/design-system.md))
-- ☐ Streaming synthesis (`/ws/tts`) for low-latency playback (optional)
-- ☐ Auto-updater wired to the project's own release endpoint
-- ☐ Error surfaces that tell the user exactly what to do (the OmniVoice failure mode this fork exists to avoid)
-- ☐ README, install docs, troubleshooting — kept honest by the smoke test
+- ☑ Settings: appearance (fixed light), engine status, optional HF token ([settings.md](specs/settings.md))
+- ☑ Design-system pass: the full DS primitive set + Parrot components built in Svelte 5 against the verbatim Tailwind recipes; light theme; focus rings, reduced-motion, ARIA ([design-system.md](specs/design-system.md)). Dark mode stays backlog by design.
+- ☑ Streaming synthesis (`/ws/tts`) — backend WS + typed `ttsStream.ts` client (optional path; primary stays `POST /generate`).
+- ☑ Auto-updater wired (updater plugin + `plugins.updater` config + client store, client-rendered). *(Ships with a placeholder pubkey — must regenerate a real minisign keypair before a signed release.)*
+- ☑ Error surfaces that tell the user what to do — uniform 5-state interaction model, redacted `detail` envelopes, OOM "Flush & retry", offline/gated setup guidance, engine-starting (not error) handling.
+- ☑ README, install docs, troubleshooting ([../README.md](../README.md)).
 
-**Exit:** the maintainer calls it "actually useful." Tag `v1.0.0`.
+**Exit:** the maintainer calls it "actually useful." Tag `v1.0.0`. **Remaining before a real `v1.0.0`:** run the model download + clone→speak on a real Windows machine (GPU/CPU), produce + code-sign the MSI, and regenerate the updater keypair — none of which are doable in a headless environment.
 
 ---
 

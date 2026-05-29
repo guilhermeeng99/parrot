@@ -1,10 +1,7 @@
 import { apiJson } from "./client";
+import type { EngineStatus } from "./types";
 
-export interface EngineStatus {
-  /** Always "omnivoice" — Parrot ships one fixed engine. */
-  active: string;
-  /** Auto-detected compute device: cuda | cpu (Windows; NVIDIA CUDA or CPU fallback). */
-  device: string;
-}
+export type { EngineStatus };
 
+/** Read the single fixed engine + auto-detected device. */
 export const getEngineStatus = () => apiJson<EngineStatus>("/engine/status");

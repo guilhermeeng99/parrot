@@ -63,15 +63,20 @@ parrot/
 │   └── src-tauri/            # Rust: shell, sidecar supervisor, commands, bundler config
 ├── sidecar/                  # Python FastAPI engine — Parrot's own code, built from the specs
 │   ├── main.py               # entrypoint: reads PARROT_PORT, calls uvicorn.run(create_app())
+│   ├── alembic/              # versioned migrations (0001_initial shares DDL with core/schema)
 │   └── app/
-│       ├── __init__.py       # FastAPI app factory (create_app)
-│       ├── config.py         # settings + CORS allow-list
-│       └── routers/          # health.py (GET /healthz), engine.py (GET /engine/status)
+│       ├── __init__.py       # FastAPI app factory (create_app) — lifespan, CORS, error envelope
+│       ├── config.py         # port/CORS + env bootstrap (Windows HF-cache fix)
+│       ├── core/             # paths, db, schema, device-detect, crypto, logging (redaction)
+│       ├── services/         # model_manager (single get_model), tts_backend, generate, audio_dsp,
+│       │                     #   audio_io, profiles, history, hf_token, setup_manager, settings_store
+│       ├── engine/           # vendored omnivoice backend adapter (import path unchanged)
+│       └── routers/          # health, engine, generate, profiles, history, setup, settings, ws
 ├── docs/                     # specs + roadmap (this is the source of truth — read before coding)
 └── scripts/                  # smoke test (more bootstrap/packaging helpers arrive in later phases)
 ```
 
-> Phase-2 target layout: the sidecar grows into `api/routers/` (generate, profiles, setup, engine-status), `core/` (config/device-detect, db, event bus), `services/` (model_manager, tts_backend, audio_dsp), and the vendored `parrot_engine/` model lib. The tree above is the **current Phase-1** scaffold.
+> The tree above is the realized Phase-2 layout. The heavy ML stack (torch/transformers/pedalboard) lives in the `engine` optional-dependency extra and is imported lazily via `model_manager.get_model()`; the default `uv sync` (and the test venv) stay light so the engine suite runs with the model boundary mocked. Production/first-run installs `uv sync --no-dev --extra engine`.
 
 > Naming note: the vendored model package keeps its original `omnivoice` import path (it is the Apache-2.0 model lib — see LICENSING). Only the *app* is rebranded to Parrot. Renaming the Python package is invasive churn for zero benefit.
 

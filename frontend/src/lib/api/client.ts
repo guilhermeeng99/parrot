@@ -38,25 +38,99 @@ export function apiBase(): Promise<string> {
   return basePromise;
 }
 
+/** Resolve a full URL for a sidecar path (used by EventSource, which is sync). */
+export async function apiUrl(path: string): Promise<string> {
+  return `${await apiBase()}${path}`;
+}
+
 /** Test-only: drop the cached base URL so the next `apiBase()` re-resolves. */
 export function __resetApiBase(): void {
   basePromise = null;
 }
 
 export class ApiError extends Error {
-  constructor(
-    public path: string,
-    public status: number,
-  ) {
-    super(`${path} → HTTP ${status}`);
+  status: number;
+  detail?: unknown;
+
+  constructor(public path: string, status: number, detail?: unknown) {
+    const tail = typeof detail === "string" && detail ? ` — ${detail}` : "";
+    super(`${path} → HTTP ${status}${tail}`);
     this.name = "ApiError";
+    this.status = status;
+    this.detail = detail;
   }
+}
+
+/** Parse the sidecar error envelope: `{ detail }` | `{ error }` | raw text. */
+async function readError(res: Response): Promise<unknown> {
+  try {
+    const body = await res.clone().json();
+    if (body && typeof body === "object") {
+      if ("detail" in body) return (body as { detail: unknown }).detail;
+      if ("error" in body) return (body as { error: unknown }).error;
+    }
+  } catch {
+    // not JSON — fall back to text
+  }
+  try {
+    return await res.text();
+  } catch {
+    return undefined;
+  }
+}
+
+/** Fetch a sidecar path, throwing `ApiError` (with parsed `detail`) on !ok. */
+export async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
+  const base = await apiBase();
+  const res = await fetch(`${base}${path}`, init);
+  if (!res.ok) throw new ApiError(path, res.status, await readError(res));
+  return res;
 }
 
 /** GET `path` on the sidecar and parse JSON, or throw `ApiError`. */
 export async function apiJson<T>(path: string): Promise<T> {
-  const base = await apiBase();
-  const res = await fetch(`${base}${path}`);
-  if (!res.ok) throw new ApiError(path, res.status);
+  const res = await apiFetch(path);
   return (await res.json()) as T;
+}
+
+/** POST a body (FormData passes through; objects are JSON-encoded) → parsed JSON. */
+export async function apiPost<T>(path: string, body?: FormData | object): Promise<T> {
+  const res = await apiPostRaw(path, body);
+  return (await res.json()) as T;
+}
+
+/** POST and return the raw Response (callers read `X-*` headers / stream body). */
+export async function apiPostRaw(
+  path: string,
+  body?: FormData | object,
+  init?: RequestInit,
+): Promise<Response> {
+  const isForm = body instanceof FormData;
+  return apiFetch(path, {
+    method: "POST",
+    body: isForm ? body : body !== undefined ? JSON.stringify(body) : undefined,
+    headers: isForm || body === undefined ? undefined : { "Content-Type": "application/json" },
+    ...init,
+  });
+}
+
+export async function apiPut<T>(path: string, body: object): Promise<T> {
+  const res = await apiFetch(path, {
+    method: "PUT",
+    body: JSON.stringify(body),
+    headers: { "Content-Type": "application/json" },
+  });
+  return (await res.json()) as T;
+}
+
+export async function apiDelete<T>(path: string): Promise<T> {
+  const res = await apiFetch(path, { method: "DELETE" });
+  return (await res.json()) as T;
+}
+
+/** User-facing message for any thrown error — prefers the sidecar `detail`. */
+export function errMsg(e: unknown): string {
+  if (e instanceof ApiError && typeof e.detail === "string" && e.detail) return e.detail;
+  if (e instanceof Error) return e.message;
+  return String(e);
 }

@@ -10,6 +10,10 @@ bun.lockb.*
 target/
 **/target/
 
+# Tauri externalBin sidecar binaries (the bundled uv.exe is ~67MB and host/
+# version specific — devs place it per README "Build from source"; not committed).
+frontend/src-tauri/binaries/
+
 # Python (sidecar)
 .venv/
 __pycache__/

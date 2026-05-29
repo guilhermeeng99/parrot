@@ -2,11 +2,17 @@
 //!
 //! Spawns the Python FastAPI sidecar, health-checks it on `/healthz`, restarts
 //! it if it crashes (with backoff + a give-up cap), and kills it when the app
-//! exits. This is the only place that owns the sidecar process.
-//! See docs/specs/architecture.md §3.
+//! exits. It also: attaches to an already-healthy sidecar instead of spawning a
+//! duplicate; takes ownership of the port from a non-Parrot squatter; pipes the
+//! sidecar's stdout/stderr to rotating-ish log files; ensures the venv exists;
+//! and surfaces boot stages to the UI (`bootstrap-stage` / `bootstrap-log`).
+//! This is the only place that owns the sidecar process.
+//! See docs/specs/architecture.md §3 and docs/specs/first-run-setup.md.
 
+use std::fs::File;
+use std::net::TcpStream;
 use std::path::PathBuf;
-use std::process::{Child, Command};
+use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
@@ -34,6 +40,12 @@ pub struct SidecarState {
     /// True once the supervisor has permanently given up (crash-looped). Latched
     /// so the UI can query the terminal state even if it missed the event.
     pub failed: AtomicBool,
+    /// Current boot stage (for the splash) + a backfillable log tail.
+    stage: Mutex<String>,
+    logs: Mutex<Vec<String>>,
+    /// Recovery signals set by the Retry / Clean & Retry commands.
+    retry_requested: AtomicBool,
+    clean_requested: AtomicBool,
     /// The loopback port the sidecar is bound to.
     pub port: u16,
 }
@@ -45,8 +57,30 @@ impl SidecarState {
             shutting_down: AtomicBool::new(false),
             ready: AtomicBool::new(false),
             failed: AtomicBool::new(false),
+            stage: Mutex::new("checking".into()),
+            logs: Mutex::new(Vec::new()),
+            retry_requested: AtomicBool::new(false),
+            clean_requested: AtomicBool::new(false),
             port,
         }
+    }
+
+    fn set_stage(&self, app: &AppHandle, stage: &str) {
+        *lock(&self.stage) = stage.to_string();
+        let _ = app.emit("bootstrap-stage", stage);
+        self.log(app, &format!("[stage] {stage}"));
+    }
+
+    fn log(&self, app: &AppHandle, line: &str) {
+        {
+            let mut guard = lock(&self.logs);
+            guard.push(line.to_string());
+            if guard.len() > 500 {
+                let drop = guard.len() - 500;
+                guard.drain(0..drop);
+            }
+        }
+        let _ = app.emit("bootstrap-log", line);
     }
 }
 
@@ -91,7 +125,8 @@ pub fn resolve_port() -> u16 {
 }
 
 /// Directory containing the sidecar's `main.py`. `PARROT_SIDECAR_DIR` overrides
-/// the dev default (`<repo>/sidecar`, relative to this crate).
+/// the dev default (`<repo>/sidecar`, relative to this crate). In a packaged
+/// build this points at the bundled sidecar resource dir.
 fn sidecar_dir() -> PathBuf {
     if let Ok(dir) = std::env::var("PARROT_SIDECAR_DIR") {
         return PathBuf::from(dir);
@@ -99,20 +134,110 @@ fn sidecar_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../sidecar")
 }
 
-fn spawn_sidecar(port: u16) -> std::io::Result<Child> {
-    Command::new("uv")
-        .args(["run", "python", "main.py"])
-        .current_dir(sidecar_dir())
-        .env("PARROT_PORT", port.to_string())
-        .spawn()
+/// The durable data dir the sidecar owns (`parrot_data/`). Honors a
+/// `PARROT_DATA_DIR` override (dev/test); else `%APPDATA%\\Parrot\\parrot_data`.
+/// The supervisor passes this to the sidecar as `PARROT_DATA_DIR` so the two
+/// processes agree on the location (e.g. for `get_app_paths`).
+pub fn data_dir(app: &AppHandle) -> PathBuf {
+    if let Ok(dir) = std::env::var("PARROT_DATA_DIR") {
+        return PathBuf::from(dir);
+    }
+    app.path()
+        .app_data_dir()
+        .map(|p| p.join("parrot_data"))
+        .unwrap_or_else(|_| PathBuf::from("parrot_data"))
+}
+
+/// Where the sidecar's stdout/stderr logs land (and the Tauri log).
+pub fn log_dir(app: &AppHandle) -> PathBuf {
+    app.path()
+        .app_log_dir()
+        .unwrap_or_else(|_| data_dir(app).join("logs"))
 }
 
 fn health_ok(port: u16) -> bool {
     let url = format!("http://127.0.0.1:{port}/healthz");
     match ureq::get(&url).timeout(Duration::from_secs(2)).call() {
-        Ok(resp) => resp.status() == 200,
+        Ok(resp) => {
+            if resp.status() != 200 {
+                return false;
+            }
+            // A foreign server squatting on the port might 200 with junk — the
+            // body must be exactly the ok payload to count as a Parrot sidecar.
+            resp.into_string()
+                .map(|b| b.contains("\"status\":\"ok\"") || b.contains("\"status\": \"ok\""))
+                .unwrap_or(false)
+        }
         Err(_) => false,
     }
+}
+
+/// Is *something* accepting TCP on the loopback port (healthy or not)?
+fn port_in_use(port: u16) -> bool {
+    let addr = format!("127.0.0.1:{port}");
+    addr.parse()
+        .ok()
+        .and_then(|a| TcpStream::connect_timeout(&a, Duration::from_millis(300)).ok())
+        .is_some()
+}
+
+/// Kill a non-Parrot process squatting on the port (Windows: netstat → taskkill).
+/// Best-effort: failures are logged and we proceed to spawn regardless.
+fn kill_orphan_on_port(port: u16) {
+    #[cfg(windows)]
+    {
+        let out = Command::new("netstat").args(["-ano", "-p", "TCP"]).output();
+        if let Ok(out) = out {
+            let text = String::from_utf8_lossy(&out.stdout);
+            let needle = format!(":{port}");
+            for line in text.lines() {
+                if line.contains(&needle) && line.to_uppercase().contains("LISTENING") {
+                    if let Some(pid) = line.split_whitespace().last() {
+                        let _ = Command::new("taskkill").args(["/F", "/PID", pid]).output();
+                    }
+                }
+            }
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = port; // POSIX takeover is out of scope (Windows-only app)
+    }
+}
+
+/// Ensure the Python venv + deps exist (first-run bootstrap). `uv run` will also
+/// self-bootstrap, but doing it explicitly lets us surface the long install as a
+/// visible stage. A present `.venv` short-circuits this on every later launch.
+fn ensure_venv(app: &AppHandle, state: &SidecarState) {
+    let dir = sidecar_dir();
+    if dir.join(".venv").exists() {
+        return; // already bootstrapped — reused on subsequent launches
+    }
+    state.set_stage(app, "creating_venv");
+    let _ = Command::new("uv").arg("venv").current_dir(&dir).status();
+    state.set_stage(app, "installing_deps");
+    // `--no-dev`: keep pytest/httpx out of the runtime venv. `--extra engine`:
+    // pull the PyTorch ML stack the model needs (packaging Rule 4).
+    let _ = Command::new("uv")
+        .args(["sync", "--no-dev", "--extra", "engine"])
+        .current_dir(&dir)
+        .status();
+}
+
+fn spawn_sidecar(app: &AppHandle, port: u16) -> std::io::Result<Child> {
+    let logs = log_dir(app);
+    let _ = std::fs::create_dir_all(&logs);
+    let stdout = File::create(logs.join("backend.log")).map(Stdio::from).unwrap_or_else(|_| Stdio::null());
+    let stderr = File::create(logs.join("backend_err.log")).map(Stdio::from).unwrap_or_else(|_| Stdio::null());
+
+    Command::new("uv")
+        .args(["run", "python", "main.py"])
+        .current_dir(sidecar_dir())
+        .env("PARROT_PORT", port.to_string())
+        .env("PARROT_DATA_DIR", data_dir(app))
+        .stdout(stdout)
+        .stderr(stderr)
+        .spawn()
 }
 
 /// Sleep for `dur`, but wake early (returning `true`) if shutdown is requested.
@@ -131,22 +256,41 @@ fn sleep_unless_shutdown(shutting_down: &AtomicBool, dur: Duration) -> bool {
     shutting_down.load(Ordering::SeqCst)
 }
 
-/// Start the supervisor on a background thread: spawn → health-check → keep
-/// alive (restart on crash, with backoff) until the app shuts down or the
-/// sidecar fails to become healthy too many times in a row.
+/// Start the supervisor on a background thread: attach-or-spawn → health-check →
+/// keep alive (restart on crash, with backoff) until the app shuts down. On
+/// repeated never-healthy starts it parks in `failed` until a Retry command.
 pub fn start(app: AppHandle, port: u16) {
     std::thread::spawn(move || {
         let state = app.state::<SidecarState>();
-        // Whether the *current* child has answered /healthz this run.
         let mut healthy = false;
-        // Whether a child was ever spawned (so the first iteration doesn't count
-        // a non-existent child as a crash).
         let mut had_child = false;
+        let mut attached = false;
         let mut failures: u32 = 0;
 
+        state.set_stage(&app, "checking");
+
         while !state.shutting_down.load(Ordering::SeqCst) {
-            // Has the current child exited (or is there none yet)?
-            let exited = {
+            // Attach to an already-healthy Parrot sidecar instead of spawning a
+            // duplicate (dev `bun run dev` against a manual backend; a surviving
+            // sidecar after a relaunch).
+            if !attached && !had_child && health_ok(port) {
+                attached = true;
+                healthy = true;
+                state.ready.store(true, Ordering::SeqCst);
+                state.set_stage(&app, "ready");
+                let _ = app.emit("sidecar-ready", port);
+            }
+
+            // An attached external sidecar that died → reclaim and spawn our own.
+            if attached && !health_ok(port) {
+                attached = false;
+                healthy = false;
+                state.ready.store(false, Ordering::SeqCst);
+            }
+
+            let exited = if attached {
+                false
+            } else {
                 let mut guard = lock(&state.child);
                 match guard.as_mut() {
                     Some(child) => matches!(child.try_wait(), Ok(Some(_))),
@@ -156,40 +300,52 @@ pub fn start(app: AppHandle, port: u16) {
 
             if exited {
                 if had_child {
-                    // Account for the child that just died: healthy run resets,
-                    // a never-healthy death counts toward the give-up cap.
                     failures = failures_after_exit(failures, healthy);
                 }
 
                 if failures >= MAX_RAPID_FAILURES {
                     eprintln!("[supervisor] sidecar failed {failures}× to start; giving up");
                     state.failed.store(true, Ordering::SeqCst);
+                    state.set_stage(&app, "failed");
                     let _ = app.emit("sidecar-failed", failures);
-                    break;
+
+                    // Park until a Retry / Clean & Retry command (or shutdown).
+                    if !park_until_retry(&app, &state) {
+                        break;
+                    }
+                    failures = 0;
+                    had_child = false;
+                    continue;
                 }
 
                 let wait = backoff_secs(failures);
                 if wait > 0 {
-                    eprintln!(
-                        "[supervisor] restarting sidecar in {wait}s (failure #{failures})"
-                    );
+                    eprintln!("[supervisor] restarting sidecar in {wait}s (failure #{failures})");
                     if sleep_unless_shutdown(&state.shutting_down, Duration::from_secs(wait)) {
                         break;
                     }
                 }
 
+                // Reclaim the port from a non-Parrot squatter before spawning.
+                if port_in_use(port) && !health_ok(port) {
+                    state.log(&app, "[supervisor] port in use by a non-Parrot process; reclaiming");
+                    kill_orphan_on_port(port);
+                    std::thread::sleep(Duration::from_millis(500));
+                }
+
+                ensure_venv(&app, &state);
+                state.set_stage(&app, "starting_backend");
                 state.ready.store(false, Ordering::SeqCst);
                 healthy = false;
-                match spawn_sidecar(port) {
+                match spawn_sidecar(&app, port) {
                     Ok(child) => {
                         *lock(&state.child) = Some(child);
                         had_child = true;
                         eprintln!("[supervisor] spawned sidecar on :{port}");
                     }
                     Err(e) => {
-                        // uv missing / not executable — count it and let the
-                        // next iteration apply backoff or give up.
                         eprintln!("[supervisor] failed to spawn sidecar: {e}");
+                        state.log(&app, &format!("[supervisor] spawn failed: {e}"));
                         had_child = false;
                         failures += 1;
                         continue;
@@ -197,10 +353,10 @@ pub fn start(app: AppHandle, port: u16) {
                 }
             }
 
-            // Announce readiness once the sidecar answers /healthz.
             if !healthy && health_ok(port) {
                 healthy = true;
                 state.ready.store(true, Ordering::SeqCst);
+                state.set_stage(&app, "ready");
                 let _ = app.emit("sidecar-ready", port);
                 eprintln!("[supervisor] sidecar healthy on :{port}");
             }
@@ -210,14 +366,39 @@ pub fn start(app: AppHandle, port: u16) {
             }
         }
 
-        // Shutting down (or gave up) — kill the child. Take it out first so the
-        // MutexGuard temporary drops before `state` (which borrows `app`) does.
+        // Shutting down — kill the child (take it out first so the guard drops
+        // before `state`, which borrows `app`). An attached external sidecar is
+        // left running on purpose (we didn't spawn it).
         let last = lock(&state.child).take();
         if let Some(mut child) = last {
             let _ = child.kill();
             eprintln!("[supervisor] sidecar terminated");
         }
     });
+}
+
+/// Park in the `failed` state until a Retry/Clean command or shutdown. Returns
+/// `true` to resume (retry requested), `false` to stop (shutting down).
+fn park_until_retry(app: &AppHandle, state: &SidecarState) -> bool {
+    loop {
+        if state.shutting_down.load(Ordering::SeqCst) {
+            return false;
+        }
+        if state.retry_requested.swap(false, Ordering::SeqCst) {
+            if state.clean_requested.swap(false, Ordering::SeqCst) {
+                // Clean & Retry: wipe the bootstrapped venv + kill any squatter.
+                let venv = sidecar_dir().join(".venv");
+                let _ = std::fs::remove_dir_all(&venv);
+                if port_in_use(state.port) && !health_ok(state.port) {
+                    kill_orphan_on_port(state.port);
+                }
+            }
+            state.failed.store(false, Ordering::SeqCst);
+            state.set_stage(app, "checking");
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(300));
+    }
 }
 
 /// Stop supervising and kill the sidecar. Called on app exit.
@@ -228,6 +409,23 @@ pub fn shutdown(app: &AppHandle) {
             let _ = child.kill();
         }
     }
+}
+
+// --- command backings (wrapped by #[tauri::command] fns in lib.rs) -----------
+
+pub fn bootstrap_stage(state: &SidecarState) -> String {
+    lock(&state.stage).clone()
+}
+
+pub fn bootstrap_logs(state: &SidecarState) -> Vec<String> {
+    lock(&state.logs).clone()
+}
+
+pub fn request_retry(state: &SidecarState, clean: bool) {
+    if clean {
+        state.clean_requested.store(true, Ordering::SeqCst);
+    }
+    state.retry_requested.store(true, Ordering::SeqCst);
 }
 
 #[cfg(test)]
@@ -249,8 +447,6 @@ mod tests {
 
     #[test]
     fn give_up_threshold_is_reachable_via_backoff() {
-        // Every failure short of the cap still backs off (>0s) so we never
-        // busy-loop, and the cap is below the give-up count so we do give up.
         for n in 1..MAX_RAPID_FAILURES {
             assert!(backoff_secs(n) > 0, "failure #{n} must back off");
         }
@@ -258,17 +454,13 @@ mod tests {
 
     #[test]
     fn failure_accounting_resets_only_on_a_healthy_run() {
-        // A child that served /healthz resets the counter…
         assert_eq!(failures_after_exit(4, true), 0);
-        // …a never-healthy death always counts, even if it limped a while.
         assert_eq!(failures_after_exit(0, false), 1);
         assert_eq!(failures_after_exit(3, false), 4);
     }
 
     #[test]
     fn never_healthy_deaths_reach_the_give_up_cap() {
-        // Simulate the loop's accounting: repeated non-healthy exits must hit the
-        // give-up threshold rather than loop forever.
         let mut failures = 0;
         for _ in 0..MAX_RAPID_FAILURES {
             failures = failures_after_exit(failures, false);
@@ -314,7 +506,6 @@ mod tests {
     #[test]
     fn sleep_unless_shutdown_returns_immediately_when_flag_set() {
         let flag = AtomicBool::new(true);
-        // Must not actually sleep 60s — the flag short-circuits it.
         assert!(sleep_unless_shutdown(&flag, Duration::from_secs(60)));
     }
 
@@ -322,14 +513,19 @@ mod tests {
     fn lock_recovers_from_a_poisoned_mutex() {
         let m = Arc::new(Mutex::new(7));
         let m2 = Arc::clone(&m);
-        // Poison the mutex by panicking while holding the guard.
         let _ = std::thread::spawn(move || {
             let _g = m2.lock().unwrap();
             panic!("intentional poison");
         })
         .join();
-
-        // The std guard would be `Err(Poisoned)`; our helper must still recover.
         assert_eq!(*lock(&m), 7);
+    }
+
+    #[test]
+    fn retry_request_sets_flags() {
+        let state = SidecarState::new(3900);
+        request_retry(&state, true);
+        assert!(state.retry_requested.load(Ordering::SeqCst));
+        assert!(state.clean_requested.load(Ordering::SeqCst));
     }
 }

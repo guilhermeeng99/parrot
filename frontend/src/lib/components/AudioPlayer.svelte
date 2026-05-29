@@ -1,0 +1,107 @@
+<script lang="ts">
+  import Spinner from "./ui/Spinner.svelte";
+
+  // Play / scrub / (optionally) download a short clip. Backed by native <audio>.
+  // States: loading → ready(paused) ⇄ playing → ended; error on load failure.
+  let {
+    src,
+    downloadable = false,
+    ondownload,
+  }: { src: string; downloadable?: boolean; ondownload?: () => void } = $props();
+
+  let audio: HTMLAudioElement;
+  let playing = $state(false);
+  let current = $state(0);
+  let duration = $state(0);
+  let loading = $state(true);
+  let errored = $state(false);
+
+  const fill = $derived(duration > 0 ? (current / duration) * 100 : 0);
+
+  function fmt(s: number): string {
+    if (!isFinite(s) || s < 0) return "0:00";
+    const m = Math.floor(s / 60);
+    const r = Math.floor(s % 60);
+    return `${m}:${r.toString().padStart(2, "0")}`;
+  }
+
+  async function toggle() {
+    if (errored || !audio) return;
+    if (playing) audio.pause();
+    else {
+      try {
+        await audio.play();
+      } catch {
+        errored = true;
+      }
+    }
+  }
+</script>
+
+<div class="flex items-center gap-3">
+  <audio
+    bind:this={audio}
+    {src}
+    preload="metadata"
+    onloadedmetadata={() => {
+      duration = audio.duration;
+      loading = false;
+    }}
+    ontimeupdate={() => (current = audio.currentTime)}
+    onplay={() => (playing = true)}
+    onpause={() => (playing = false)}
+    onended={() => {
+      playing = false;
+      current = 0;
+    }}
+    onerror={() => {
+      errored = true;
+      loading = false;
+    }}
+  ></audio>
+
+  <button
+    type="button"
+    class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-action-blue text-snow-white transition hover:brightness-105 disabled:opacity-50"
+    onclick={toggle}
+    disabled={errored}
+    aria-label={playing ? "Pause" : "Play"}
+  >
+    {#if loading}<Spinner size="sm" />{:else}<span aria-hidden="true">{playing ? "❚❚" : "▶"}</span>{/if}
+  </button>
+
+  <input
+    class="parrot-range flex-1"
+    type="range"
+    min={0}
+    max={duration || 0}
+    step={0.01}
+    value={current}
+    style="--fill:{fill}%"
+    aria-label="Seek"
+    aria-valuetext="{fmt(current)} of {fmt(duration)}"
+    disabled={errored || loading}
+    oninput={(e) => {
+      const v = Number((e.currentTarget as HTMLInputElement).value);
+      if (audio) audio.currentTime = v;
+      current = v;
+    }}
+  />
+
+  <span class="shrink-0 font-mono text-body text-slate-blue" aria-live="off">
+    {fmt(current)} / {fmt(duration)}
+  </span>
+
+  {#if downloadable}
+    <button
+      type="button"
+      class="shrink-0 text-body font-semibold text-action-blue hover:underline"
+      onclick={ondownload}
+      aria-label="Download">⬇</button
+    >
+  {/if}
+</div>
+
+{#if errored}
+  <p class="text-body text-danger">Couldn't load this clip.</p>
+{/if}

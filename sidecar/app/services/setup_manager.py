@@ -1,0 +1,236 @@
+"""First-run model gate: presence check + download with SSE progress.
+
+`setup_status()` is a stateless snapshot (readiness is derived from the HF cache,
+never persisted — first-run-setup Rule 2). `start_download()` kicks a background
+download whose progress flows over `download_stream()` as SSE events. A failed
+repo is put in a 60 s cooldown so a button-masher can't stampede the network.
+
+The download itself (`_run_snapshot`) and the cache scan (`_scan_cached_repos`)
+are indirected so tests exercise the status/cooldown/event logic without a real
+network or multi-GB download.
+"""
+
+import asyncio
+import json
+import logging
+import shutil
+import threading
+import time
+from collections import deque
+from pathlib import Path
+
+from .. import config
+from .errors import ServiceError
+
+log = logging.getLogger(__name__)
+
+COOLDOWN_S = 60.0
+_MAX_RETRIES = 3
+
+# repo_id -> epoch seconds of last failure (cooldown source).
+_last_failure: dict[str, float] = {}
+_active: set[str] = set()
+_active_lock = threading.Lock()
+
+
+# ---------------------------------------------------------------------------
+# Event broadcaster (background thread → async SSE generator)
+# ---------------------------------------------------------------------------
+class _Broadcaster:
+    def __init__(self) -> None:
+        self._subs: set[asyncio.Queue] = set()
+        self._recent: deque = deque(maxlen=50)
+        self._loop: asyncio.AbstractEventLoop | None = None
+
+    def bind_loop(self, loop: asyncio.AbstractEventLoop) -> None:
+        self._loop = loop
+
+    def publish(self, event: dict) -> None:
+        self._recent.append(event)
+        loop = self._loop
+        if loop is None:
+            return
+        for q in list(self._subs):
+            try:
+                loop.call_soon_threadsafe(q.put_nowait, event)
+            except RuntimeError:
+                pass  # loop closed; subscriber is going away anyway
+
+    def subscribe(self) -> asyncio.Queue:
+        q: asyncio.Queue = asyncio.Queue()
+        for event in list(self._recent):  # replay so a late client sees the phase
+            q.put_nowait(event)
+        self._subs.add(q)
+        return q
+
+    def unsubscribe(self, q: asyncio.Queue) -> None:
+        self._subs.discard(q)
+
+
+_bus = _Broadcaster()
+
+
+def bind_loop(loop: asyncio.AbstractEventLoop) -> None:
+    """Called from the app lifespan so the worker thread can publish into the loop."""
+    _bus.bind_loop(loop)
+
+
+def _event(repo_id: str, phase: str, **extra) -> dict:
+    base = {"repo_id": repo_id, "filename": "", "downloaded": 0, "total": 0, "pct": 0.0, "phase": phase}
+    base.update(extra)
+    return base
+
+
+# ---------------------------------------------------------------------------
+# Cache presence + disk
+# ---------------------------------------------------------------------------
+def _scan_cached_repos() -> dict[str, int]:
+    """Map repo_id -> size_on_disk from the HF cache. {} if the cache is empty/absent."""
+    try:
+        from huggingface_hub import scan_cache_dir
+
+        info = scan_cache_dir()
+        return {r.repo_id: int(r.size_on_disk) for r in info.repos}
+    except Exception:
+        return {}
+
+
+def _is_cached(repo_id: str, sizes: dict[str, int]) -> bool:
+    # Cached only when on-disk size > 0 — a torn/zero-byte snapshot is NOT ready.
+    return sizes.get(repo_id, 0) > 0
+
+
+def _disk_free_gb(start: Path) -> float:
+    """Free GB on the volume holding `start`, walking up to the nearest existing
+    ancestor. 0.0 on any probe error (so enough_disk is False — fail safe)."""
+    probe = start
+    for _ in range(40):
+        if probe.exists():
+            try:
+                return round(shutil.disk_usage(str(probe)).free / (1024**3), 2)
+            except OSError:
+                return 0.0
+        if probe.parent == probe:
+            break
+        probe = probe.parent
+    return 0.0
+
+
+def setup_status() -> dict:
+    cache_dir = config.hf_cache_dir()
+    sizes = _scan_cached_repos()
+    missing = [
+        {"repo_id": m["repo_id"], "label": m["label"]}
+        for m in config.known_models()
+        if not _is_cached(m["repo_id"], sizes)
+    ]
+    free_gb = _disk_free_gb(Path(cache_dir))
+    return {
+        "models_ready": len(missing) == 0,
+        "missing": missing,
+        "hf_cache_dir": cache_dir,
+        "disk_free_gb": free_gb,
+        "min_free_gb": config.MIN_FREE_GB,
+        "enough_disk": free_gb >= config.MIN_FREE_GB,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Download
+# ---------------------------------------------------------------------------
+def _known_repo_ids() -> set[str]:
+    return {m["repo_id"] for m in config.known_models()}
+
+
+def _run_snapshot(repo_id: str) -> None:
+    """Blocking HF snapshot download (indirected for tests). Symlink-free on
+    Windows so it works without the symlink privilege (first-run-setup §7)."""
+    from huggingface_hub import snapshot_download
+
+    from . import hf_token
+
+    snapshot_download(
+        repo_id=repo_id,
+        token=hf_token.resolve_token(),
+        local_dir_use_symlinks=False,
+    )
+
+
+def _download_worker(repo_id: str) -> None:
+    _bus.publish(_event(repo_id, "install_start"))
+    _bus.publish(_event(repo_id, "resolving"))
+    try:
+        last_error: Exception | None = None
+        for attempt in range(1, _MAX_RETRIES + 1):
+            try:
+                _run_snapshot(repo_id)
+                last_error = None
+                break
+            except Exception as e:  # transient network/OSError → backoff + retry
+                last_error = e
+                from ..core.logging import redact
+
+                if attempt < _MAX_RETRIES:
+                    _bus.publish(
+                        _event(repo_id, "install_retry", attempt=attempt, error=redact(str(e)))
+                    )
+                    time.sleep(min(2**attempt, 8))
+        if last_error is not None:
+            raise last_error
+        _bus.publish(_event(repo_id, "progress", pct=1.0))
+        _bus.publish(_event(repo_id, "install_done", pct=1.0))
+    except Exception as e:
+        from ..core.logging import redact
+
+        _last_failure[repo_id] = time.time()
+        _bus.publish(_event(repo_id, "install_error", error=redact(str(e))))
+        log.warning("Model download failed for %s: %s", repo_id, redact(str(e)))
+    finally:
+        with _active_lock:
+            _active.discard(repo_id)
+
+
+def start_download(repo_id: str) -> dict:
+    if repo_id not in _known_repo_ids():
+        raise ServiceError(400, f"Unknown model repo: '{repo_id}'.")
+
+    # Cooldown after a recent failure (Rule 8).
+    last = _last_failure.get(repo_id)
+    if last is not None:
+        remaining = COOLDOWN_S - (time.time() - last)
+        if remaining > 0:
+            raise ServiceError(429, f"That download just failed — retry in {int(remaining) + 1}s.")
+
+    # Already fully cached → no-op that immediately reports done (Rule 4).
+    if _is_cached(repo_id, _scan_cached_repos()):
+        _bus.publish(_event(repo_id, "install_done", pct=1.0))
+        return {"status": "download_started", "repo_id": repo_id}
+
+    with _active_lock:
+        if repo_id not in _active:
+            _active.add(repo_id)
+            threading.Thread(
+                target=_download_worker, args=(repo_id,), daemon=True
+            ).start()
+    return {"status": "download_started", "repo_id": repo_id}
+
+
+async def download_stream():
+    """Async generator of SSE byte chunks: one `data:` line per progress event,
+    `: keepalive` on idle (~30 s) so proxies don't drop the stream."""
+    q = _bus.subscribe()
+    try:
+        while True:
+            try:
+                event = await asyncio.wait_for(q.get(), timeout=30.0)
+                yield f"data: {json.dumps(event)}\n\n".encode("utf-8")
+            except asyncio.TimeoutError:
+                yield b": keepalive\n\n"
+    finally:
+        _bus.unsubscribe(q)
+
+
+def _reset_for_tests() -> None:
+    _last_failure.clear()
+    with _active_lock:
+        _active.clear()

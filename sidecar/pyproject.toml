@@ -1,11 +1,39 @@
 [project]
 name = "parrot-sidecar"
 version = "0.0.1"
-description = "Parrot local voice engine — FastAPI sidecar (Phase 1 stub: no ML yet)"
+description = "Parrot local voice engine — FastAPI sidecar (clone + speak)"
 requires-python = ">=3.11"
+
+# Runtime deps that are LIGHT enough to always install and that the pure-Python
+# app paths (DB, profiles, history, settings, setup-status, DSP scaffolding,
+# device-status fallback) import directly. The heavy ML stack lives in the
+# optional `engine` extra below and is imported lazily so the app — and the test
+# suite — boot without torch present (model loading is mocked in tests; see
+# docs/specs/synthesis.md "model loading mocked so engine tests don't need a GPU").
 dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
+    "python-multipart>=0.0.9",   # FastAPI multipart form parsing (/generate, /profiles)
+    "numpy>=1.26",               # waveform math (light)
+    "soundfile>=0.12",           # WAV I/O; wheel bundles libsndfile
+    "huggingface-hub>=0.24",     # model download + whoami/login (light, no torch)
+    "cryptography>=42",          # Fernet at-rest encryption of the HF token
+    "alembic>=1.13",             # versioned DB migrations (tested upgrade path)
+]
+
+# The PyTorch voice engine. NOT installed by the default `uv sync` / the test
+# venv (torch is multi-GB and needs no test coverage — the model boundary is
+# mocked). Production / first-run installs this with `uv sync --no-dev --extra
+# engine` (see docs/specs/packaging.md Rule 4). The vendored Apache-2.0
+# `omnivoice` model lib keeps its original import path and is resolved at runtime
+# by model_manager; it is documented in docs/LICENSING.md and not pinned here so
+# the lockfile stays resolvable without the model repo present.
+[project.optional-dependencies]
+engine = [
+    "torch>=2.2",
+    "torchaudio>=2.2",
+    "transformers>=4.44",
+    "pedalboard>=0.9",           # DSP effect presets (graceful-degrades if absent)
 ]
 
 # Test/dev tooling — NOT shipped in the bundle (production sync uses `uv sync --no-dev`).
@@ -27,3 +55,4 @@ package = false
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning"]

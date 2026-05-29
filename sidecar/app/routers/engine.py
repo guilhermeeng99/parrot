@@ -1,16 +1,20 @@
-"""Engine status — the single fixed-engine/device stub.
+"""Engine + device status — the single fixed-engine/device endpoint.
 
-Per docs/specs/ipc-contract.md: `GET /engine/status` returns
-`{"active": "omnivoice", "device": "<id>"}`. Phase 1 reports a fixed `cpu`
-device with no torch import; real device auto-detect lands with the engine
-(see docs/specs/device-detection.md).
+`GET /engine/status` → `{"active":"omnivoice","device":"<id>"}` (device ∈
+{cuda, cpu}, optional `device_label`). Device resolution is owned by
+core/device.py and lazily triggers the torch import on the first call; this
+endpoint never throws — on any internal error it reports a safe `cpu` default
+(device-detection.md / settings.md).
 """
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+
+from ..core import device
+from .deps import require_loopback
 
 router = APIRouter()
 
 
 @router.get("/engine/status")
-def engine_status() -> dict[str, str]:
-    return {"active": "omnivoice", "device": "cpu"}
+def engine_status(_: None = Depends(require_loopback)) -> dict:
+    return device.engine_status()
