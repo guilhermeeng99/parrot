@@ -57,6 +57,11 @@ jobs:
           uv run pytest -q
         working-directory: sidecar
 
+      # tauri-build checks externalBin existence at COMPILE time, so clippy + cargo
+      # test need uv.exe present, not just the bundle step.
+      - name: Fetch uv (externalBin)
+        uses: ./.github/actions/fetch-uv-bin
+
       # The Rust shell gates the release: `release` needs `ci`, so a warning or a
       # red test blocks publishing. Zero-warning rule is enforced with -D warnings.
       - name: Clippy (warnings = errors)
@@ -126,17 +131,9 @@ jobs:
         working-directory: frontend
 
       # Tauri externalBin: the bundle ships uv.exe; the user's machine bootstraps the
-      # Python venv on first run. It's gitignored (~67MB), so fetch it here and place
-      # it under the target-triple name the bundler resolves `binaries/uv` to.
+      # Python venv on first run. Gitignored (~67MB), so fetch it before the build.
       - name: Fetch uv (externalBin)
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          New-Item -ItemType Directory -Force -Path frontend/src-tauri/binaries | Out-Null
-          $zip = "$env:RUNNER_TEMP\uv.zip"
-          Invoke-WebRequest -Uri "https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-pc-windows-msvc.zip" -OutFile $zip
-          Expand-Archive -Path $zip -DestinationPath "$env:RUNNER_TEMP\uv" -Force
-          Copy-Item "$env:RUNNER_TEMP\uv\uv.exe" "frontend/src-tauri/binaries/uv-x86_64-pc-windows-msvc.exe" -Force
+        uses: ./.github/actions/fetch-uv-bin
 
       - name: Build & publish installer
         uses: tauri-apps/tauri-action@v0

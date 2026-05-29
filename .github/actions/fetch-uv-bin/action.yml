@@ -1,0 +1,20 @@
+name: Fetch uv externalBin
+description: >
+  Download uv.exe into frontend/src-tauri/binaries under the target-triple name
+  the Tauri bundler resolves `binaries/uv` to. Needed by BOTH the clippy/test job
+  and the build job, because tauri-build validates externalBin existence at
+  compile time (not just at bundle time). The bin is gitignored (~67MB).
+runs:
+  using: composite
+  steps:
+    - shell: pwsh
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $dest = "frontend/src-tauri/binaries/uv-x86_64-pc-windows-msvc.exe"
+        if (Test-Path $dest) { Write-Host "uv bin already present"; exit 0 }
+        New-Item -ItemType Directory -Force -Path frontend/src-tauri/binaries | Out-Null
+        $zip = "$env:RUNNER_TEMP\uv.zip"
+        Invoke-WebRequest -Uri "https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-pc-windows-msvc.zip" -OutFile $zip
+        Expand-Archive -Path $zip -DestinationPath "$env:RUNNER_TEMP\uv" -Force
+        Copy-Item "$env:RUNNER_TEMP\uv\uv.exe" $dest -Force
+        Write-Host "fetched uv -> $dest"
