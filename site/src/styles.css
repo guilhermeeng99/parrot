@@ -1,0 +1,60 @@
+@import "tailwindcss";
+
+/* Parrot design tokens (Calendly "Sky Blueprint"), shared with the app's @theme
+   block in frontend/src/app.css. The two *-glow colors below are page-only
+   decoration (the hero blur orbs) and are not part of the app token set. */
+@theme {
+  --color-midnight-indigo: #0b3558;
+  --color-action-blue: #006bff;
+  --color-glacier-blue: #004eba;
+  --color-snow-white: #ffffff;
+  --color-cloud-mist: #f8f9fb;
+  --color-pale-gray: #e7edf6;
+  --color-slate-blue: #476788;
+  --color-platinum-tint: #d4e0ed;
+  --color-outline-gray: #e6e6e6;
+  --color-skybound-blue: #0099ff;
+  --color-lavender-glow: #e55cff;
+
+  --font-gilroy: "Montserrat", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", Roboto, sans-serif;
+
+  --text-body: 14px;
+  --text-body--line-height: 1.71;
+  --text-body-lg: 16px;
+  --text-body-lg--line-height: 1.6;
+  --text-subheading: 18px;
+  --text-subheading--line-height: 1.6;
+  --text-heading: 24px;
+  --text-heading--line-height: 1.4;
+  --text-heading-lg: 28px;
+  --text-heading-lg--line-height: 1.2;
+  --text-display-sm: 38px;
+  --text-display-sm--line-height: 1.21;
+  --text-display: 50px;
+  --text-display--line-height: 1.1;
+  --text-display-lg: 68px;
+  --text-display-lg--line-height: 1.1;
+
+  --shadow-sm:
+    rgba(71, 103, 136, 0.04) 0px 4px 5px 0px, rgba(71, 103, 136, 0.03) 0px 4px 10px 0px,
+    rgba(71, 103, 136, 0.05) 0px 10px 20px 0px;
+  --shadow-sm-2:
+    rgba(71, 103, 136, 0.04) 0px 4px 5px 0px, rgba(71, 103, 136, 0.03) 0px 8px 15px 0px,
+    rgba(71, 103, 136, 0.08) 0px 30px 50px 0px;
+}
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    scroll-behavior: smooth;
+  }
+  body {
+    background-color: var(--color-snow-white);
+    color: var(--color-midnight-indigo);
+    font-family: var(--font-gilroy);
+    font-size: var(--text-body-lg);
+    line-height: 1.6;
+  }
+}
