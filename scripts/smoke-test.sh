@@ -21,9 +21,10 @@ echo "==> Building frontend…"
 ( cd "$ROOT/frontend" && bun install --silent && bun run build >/dev/null )
 echo "    frontend build OK"
 
-# 2. Sidecar venv.
+# 2. Sidecar venv. --no-dev: the smoke test exercises the runtime app only, and
+#    the shipped/first-run venv must not carry pytest/httpx (dev-group) weight.
 echo "==> Syncing sidecar venv…"
-( cd "$ROOT/sidecar" && uv sync -q )
+( cd "$ROOT/sidecar" && uv sync --no-dev -q )
 
 # 3. Boot the sidecar.
 echo "==> Booting sidecar…"

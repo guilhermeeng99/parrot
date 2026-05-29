@@ -8,7 +8,22 @@ dependencies = [
     "uvicorn[standard]>=0.30",
 ]
 
+# Test/dev tooling — NOT shipped in the bundle (production sync uses `uv sync --no-dev`).
+# httpx backs FastAPI's TestClient.
+# TODO: starlette warns it will require `httpx2` for TestClient in a future major;
+# when that lands, add httpx2 here or pin starlette below that release.
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "httpx>=0.27",
+]
+
 # This is an application, not an installable library — uv should not try to
 # build/install it as a package.
 [tool.uv]
 package = false
+
+# Run pytest from the sidecar/ root so `import app` resolves without an install.
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

@@ -11,12 +11,17 @@ HOST = "127.0.0.1"
 
 
 def port() -> int:
-    """The port to bind. Env override keeps the supervisor + sidecar in sync."""
+    """The port to bind. Env override keeps the supervisor + sidecar in sync.
+
+    Out-of-range values fall back to 3900 to match the Rust supervisor's u16
+    parse (`resolve_port`), so the two processes never bind different ports.
+    """
     raw = os.environ.get("PARROT_PORT", "3900")
     try:
-        return int(raw)
+        value = int(raw)
     except ValueError:
         return 3900
+    return value if 1 <= value <= 65535 else 3900
 
 
 # Origins allowed to call the sidecar: the Vite dev server and the Tauri WebView.
