@@ -39,6 +39,18 @@ export const readLogTail = (source: "backend" | "tauri", tail = 300) =>
 export const checkForUpdate = () => invoke<UpdateStatus>("check_for_update");
 export const installUpdate = () => invoke<void>("install_update");
 
+/** The app's own version (from tauri.conf.json), e.g. "0.0.4". Returns "dev"
+ *  outside Tauri (the dev browser has no app metadata). Never throws. */
+export async function getAppVersion(): Promise<string> {
+  if (!inTauri()) return "dev";
+  try {
+    const { getVersion } = await import("@tauri-apps/api/app");
+    return await getVersion();
+  } catch {
+    return "dev";
+  }
+}
+
 /** Subscribe to install_update download progress (`update-progress` event).
  *  Returns an unlisten fn; a no-op unlisten outside Tauri (the dev browser has
  *  no updater). See docs/specs/ipc-contract.md §11. */

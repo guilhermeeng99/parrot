@@ -1,5 +1,23 @@
 import { writable } from "svelte/store";
-import { checkForUpdate, errMsg, inTauri, installUpdate, onUpdateProgress } from "$lib/api";
+import {
+  checkForUpdate,
+  errMsg,
+  getAppVersion,
+  inTauri,
+  installUpdate,
+  onUpdateProgress,
+} from "$lib/api";
+
+// The running app's OWN version (e.g. "0.0.4"), shown in the header + Settings.
+// Distinct from the updater store's `version`, which is the AVAILABLE update.
+export const appVersion = writable<string>("");
+
+let versionLoaded = false;
+export async function loadAppVersion(): Promise<void> {
+  if (versionLoaded) return; // fetched once per session; getAppVersion never throws
+  versionLoaded = true;
+  appVersion.set(await getAppVersion());
+}
 
 // Updater store (packaging.md). Client-rendered (dialog:false). Outside Tauri
 // there is no updater, so checks resolve to up_to_date rather than nagging.

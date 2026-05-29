@@ -9,7 +9,7 @@
 
   import { bootstrap, initBootstrap, retry } from "$lib/stores/bootstrap";
   import { mode } from "$lib/stores/ui";
-  import { applyUpdate, checkUpdate, updater } from "$lib/stores/updater";
+  import { appVersion, applyUpdate, checkUpdate, loadAppVersion, updater } from "$lib/stores/updater";
   import Badge from "$lib/components/ui/Badge.svelte";
   import Button from "$lib/components/ui/Button.svelte";
   import Card from "$lib/components/ui/Card.svelte";
@@ -22,7 +22,10 @@
 
   let setupReady = $state(false);
 
-  onMount(initBootstrap);
+  onMount(() => {
+    initBootstrap();
+    loadAppVersion();
+  });
 
   $effect(() => {
     if (setupReady) checkUpdate();
@@ -74,6 +77,9 @@
         <span aria-hidden="true">🦜</span> Parrot
       </span>
       <Badge>local</Badge>
+      {#if $appVersion}
+        <span class="text-body text-slate-blue" title="Installed version">v{$appVersion}</span>
+      {/if}
       <nav class="ml-auto">
         <ModeTabs items={navItems} value={$mode} onselect={(v) => mode.set(v as typeof $mode)} />
       </nav>
