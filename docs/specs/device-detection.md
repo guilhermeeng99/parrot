@@ -1,0 +1,150 @@
+# Device Detection
+
+How the Parrot Python sidecar picks the compute device it loads the voice-cloning model onto — CUDA (NVIDIA) / ROCm (AMD) / MPS (Apple Silicon) / CPU — and how that choice is sized into a worker pool and surfaced to the Svelte UI.
+
+Device selection runs entirely inside the **Python FastAPI sidecar** (it is the only process that touches PyTorch). The Tauri shell and the Svelte UI never probe hardware; they only read the result over the IPC contract. See [../../CLAUDE.md](../../CLAUDE.md) for the cross-platform parity rule that governs the default behavior here, and [architecture.md](./architecture.md) for the surrounding sidecar/supervisor architecture.
+
+---
+
+## Entity Contract
+
+Device detection produces three values that the rest of the sidecar and the UI consume. None are persisted to the database — they are derived from the runtime at model-load time and recomputed on demand.
+
+```text
+device : str
+    The torch device string the model is loaded onto.
+    One of: "cuda" | "mps" | "cpu"  (the only values exposed).
+    NVIDIA CUDA and AMD ROCm both report as "cuda" — ROCm-enabled PyTorch
+    routes through torch.cuda.* and is indistinguishable at the string level.
+
+gpu_workers : int   (1..16)
+    Size of the GPU ThreadPoolExecutor that runs synthesize jobs.
+    Lazily computed once on first model access, then cached for the
+    process lifetime.
+
+cpu_workers : int   (1..8 by default)
+    Size of the CPU ThreadPoolExecutor used for non-GPU work.
+    = PARROT_CPU_POOL env override, else min(8, os.cpu_count() or 4).
+```
+
+Tuning constants (sidecar-internal, not user-facing):
+
+```text
+GPU_VRAM_PER_JOB_GB = 2.5   # budgeted free VRAM per concurrent synthesize job
+GPU_WORKER_CAP      = 4     # hard ceiling on GPU workers regardless of VRAM
+```
+
+**Invariants**
+
+- `device` is a non-empty string in every code path; detection never raises and never returns `None` (worst case `"cpu"`).
+- `device` ∈ {`"cuda"`, `"mps"`, `"cpu"`} — there are exactly these three reportable values (ROCm reports as `"cuda"`); no other accelerator string is ever produced.
+- `gpu_workers >= 1` always — a failed probe degrades to a single worker, never zero.
+- `device == "cpu"` ⇒ `gpu_workers == 1` (the "GPU" pool still exists; it just runs CPU inference single-threaded).
+- The detected device is stable for the process lifetime. A driver appearing/disappearing mid-run is not handled; the user restarts the app.
+
+---
+
+## Business Rules
+
+1. **Priority order.** Detection picks the first available device in this order: **CUDA/ROCm → MPS → CPU**. NVIDIA and AMD-on-ROCm both satisfy the CUDA check and win first. This is the complete supported set — Parrot supports exactly CUDA, MPS, ROCm, and CPU; there is no other accelerator branch.
+2. **CUDA / ROCm detection** = `torch.cuda.is_available()`. ROCm builds of PyTorch expose the AMD GPU through the same `torch.cuda` namespace, so no separate branch exists.
+3. **MPS detection** = `torch.backends.mps` exists **and** `torch.backends.mps.is_available()` (Apple Silicon).
+4. **CPU is the universal fallback** and is always reachable — if every probe above fails or throws, detection returns `"cpu"`.
+5. **GPU worker sizing.** Worker count is resolved in this order:
+   1. `PARROT_GPU_WORKERS` env var, if set and an integer, clamped to `1..16`.
+   2. CUDA/ROCm: `free_workers = floor(free_VRAM_GB / 2.5)`, clamped to `1..4`. Free VRAM comes from `torch.cuda.mem_get_info()`.
+   3. MPS: exactly **1** worker (Apple Silicon shares unified system memory between CPU and GPU; parallel jobs contend for the same pool, so a second worker only adds OOM risk).
+   4. CPU / unknown: **1** worker.
+6. **CPU pool sizing.** The CPU ThreadPoolExecutor is sized at startup to `PARROT_CPU_POOL` (if set) else `min(8, os.cpu_count() or 4)`. This pool is independent of the GPU pool and is not resized when a GPU is present.
+7. **Fail-safe probing.** Any exception raised while probing (`mem_get_info` failure, driver crash, missing symbol) is caught and logged; worker sizing falls back to **1** and detection falls back to `"cpu"`. A hardware probe must never propagate an exception into model loading.
+8. **ROCm GFX auto-override.** Before returning `"cuda"` on an AMD GPU, the sidecar may set `HSA_OVERRIDE_GFX_VERSION` for consumer GFX IDs that ROCm doesn't list in its official support matrix (e.g. RX 7000 → `11.0.0`, RX 6000 → `10.3.0`, Vega → `9.0.x`). It is skipped if the user already exported `HSA_OVERRIDE_GFX_VERSION`, and only fires for device names containing `amd` / `radeon` / `instinct`.
+9. **Compute-capability check.** On CUDA, the sidecar compares the GPU's `sm_<major><minor>` tag against the PyTorch build's compiled arch list. A mismatch does **not** block loading — it logs a warning and still attempts the device; the failure (if any) surfaces later as a model-load error.
+10. **Lazy + cached.** `torch` is imported lazily on first device access (it is a multi-second import). Device detection and GPU-pool sizing are computed on first model access and cached, so `GET /healthz` stays instant during cold start and `GET /engine/status` answers from the cached value once detection has run.
+11. **Cross-platform parity (strict — restated from [../../CLAUDE.md](../../CLAUDE.md)).** Device *detection* is platform-specific implementation (CUDA on Win/Linux, MPS on macOS, ROCm on Linux). The *user-visible default behavior* is identical on macOS, Windows, and Linux: **Parrot auto-selects the best available accelerator and falls back to CPU with no user action.** There is no OS-specific default divergence and no per-OS opt-in for the default path. Power-user overrides (`PARROT_GPU_WORKERS`, `PARROT_CPU_POOL`, `HSA_OVERRIDE_GFX_VERSION`) are explicit env-var opt-ins and therefore allowed. A default that produced a GPU on one OS but silently CPU-only on another (with the same hardware class) would be a P0 parity bug.
+
+---
+
+## IPC Contract
+
+The detected device is read-only from the UI's perspective; there is no "set device" endpoint. Parrot ships a single fixed engine, so device is reported alongside the engine identity on one endpoint.
+
+### `GET /engine/status`
+
+The single place the active device is reported to the UI. Parrot has exactly one TTS engine (`omnivoice`), so `active` is a fixed constant; `device` is the resolved compute device. Must never throw — on any internal error it returns safe defaults with `device: "cpu"`.
+
+```jsonc
+// 200 OK
+{
+  "active": "omnivoice",
+  "device": "cuda",            // "cuda" | "mps" | "cpu"
+  "device_label": "GPU (CUDA)" // optional human label
+}
+```
+
+- **Errors:** never 5xx. On failure returns the same shape with `device: "cpu"`.
+- There is no engine picker and no `POST` to select an engine or device — engine identity is fixed and device is auto-detected. This is the **only** engine/device endpoint; there is no `/engine`, `/engines`, `/system/info`, or `/system/notifications`.
+
+### CPU-running hint
+
+When the resolved device is `"cpu"`, the UI shows an advisory hint ("Running on CPU — voice generation will be slower; if you have a GPU, check your CUDA/MPS drivers"). This is derived purely from `device == "cpu"` on the `GET /engine/status` response — there is no separate notifications endpoint and nothing is pushed from the sidecar. The hint is advisory only; CPU is a fully supported device and the hint never blocks generation.
+
+### `GET /healthz` (supervisor probe — no device data)
+
+Used by the Tauri supervisor to confirm the sidecar is alive. Returns liveness only:
+
+```jsonc
+// 200 OK
+{ "status": "ok" }
+```
+
+It intentionally does **not** trigger torch import or device detection, carries no `device` (or any other) field, and stays fast during the multi-second cold start while the model loads.
+
+---
+
+## State Machines
+
+The frontend models device awareness as derived state in a Svelte store (e.g. `frontend/src/lib/stores/`), fed by the typed IPC client in `frontend/src/lib/api/`. Device itself has no transitions inside the UI — it's a value read from `/engine/status` — but the *display* state does:
+
+```text
+deviceStore states:
+
+  unknown ──(fetch /engine/status)──▶ resolving
+  resolving ──(200, device != "cpu")──▶ accelerated   { label: "GPU (CUDA)" | "GPU (MPS)" | … }
+  resolving ──(200, device == "cpu")──▶ cpu_only       { hint: "Running on CPU" }
+  resolving ──(network error / 5xx)───▶ resolving      (retry with backoff; treat as unknown until first success)
+
+  accelerated ─┐
+  cpu_only ────┴─(sidecar restart / app relaunch)──▶ unknown
+```
+
+- The store is populated once per sidecar lifetime; a device label change requires a sidecar restart (rules 10/11). The UI does not poll for device changes; it re-fetches `/engine/status` on relaunch.
+- `cpu_only` is a terminal-but-valid state, visually distinct from an error: generation is enabled, only a "slower on CPU" hint is shown.
+
+---
+
+## Edge Cases
+
+- **No GPU at all.** Every accelerator probe fails → `device = "cpu"`, `gpu_workers = 1`. Synthesis works, slower. The UI shows the "Running on CPU" hint (derived from `device == "cpu"`). (Default path on a generic desktop/laptop with no discrete GPU.)
+- **GPU present but VRAM too small.** `floor(free_VRAM / 2.5)` can be `0`; the `max(1, …)` clamp forces `gpu_workers = 1` rather than zero. If the model itself can't fit, that surfaces later as a model-load error, not a detection error — detection still reports `"cuda"`.
+- **Driver / arch mismatch.** GPU detected but the PyTorch build wasn't compiled for its compute capability (`sm_120` on an old wheel, etc.). Detection still returns `"cuda"` and logs a warning naming the device, its `sm_` tag, and the supported arch list. It does not silently fall back to CPU — the user gets an actionable message instead of a mystery slowdown.
+- **ROCm GFX not in support matrix.** AMD consumer card whose GFX ID isn't officially supported → `HSA_OVERRIDE_GFX_VERSION` is auto-set to the nearest supported arch before returning `"cuda"`. Skipped entirely if the user already set the override, or if the device name doesn't look like AMD.
+- **MPS fallback ops.** Some torch ops are unimplemented on MPS. Parrot keeps MPS at a single worker; if the model hits an unsupported op, that surfaces as a model/runtime error from the engine, not from detection. (Users may set `PYTORCH_ENABLE_MPS_FALLBACK=1` themselves as a power-user opt-in; Parrot does not force it as a default, to avoid silent CPU-speed regressions.)
+- **Multiple GPUs.** Detection selects device index `0` only; there is no multi-GPU spread and no device picker. Free-VRAM sizing reads GPU 0's `mem_get_info()`. Users with a specific GPU preference set `CUDA_VISIBLE_DEVICES` before launch (env opt-in).
+- **`mem_get_info()` raises.** Caught; `gpu_workers` falls back to `1`, device stays whatever the `is_available()` check returned (still `"cuda"`).
+- **Bad worker override.** `PARROT_GPU_WORKERS=foo` (non-integer) is ignored with a warning and sizing proceeds to the VRAM heuristic. Integer values outside `1..16` are clamped, not rejected.
+- **Cold-start race.** A device/engine-status read that lands before torch finishes importing must not block: `/healthz` answers liveness without forcing detection; `/engine/status` triggers the lazy import on the very first call and may take longer then, but still returns rather than 5xx (falling back to `device: "cpu"` on any internal error).
+
+---
+
+## Data
+
+Device detection touches **no database tables and no files** — it is pure runtime introspection. For reference, the persistent user data it sits alongside lives under `parrot_data/` (voices, generated audio, the SQLite DB, settings); device choice is recomputed each process start and never written there.
+
+| Surface | Read / Write | Notes |
+|---|---|---|
+| `torch.cuda` / `torch.backends.mps` | read | Hardware probes (CUDA/ROCm via `torch.cuda`, MPS via `torch.backends.mps`); lazily imported. |
+| `os.environ` | read | `PARROT_GPU_WORKERS`, `PARROT_CPU_POOL`, `CUDA_VISIBLE_DEVICES`, `PYTORCH_ENABLE_MPS_FALLBACK`. |
+| `os.environ["HSA_OVERRIDE_GFX_VERSION"]` | read + conditional write | Auto-set for unsupported AMD GFX IDs; never overwrites a user-set value. |
+| Sidecar log (`parrot_data/`) | write | Worker-count, device, and arch-mismatch warnings are logged for the Settings → Logs view. |
+| GPU `ThreadPoolExecutor` | derived | Sized once from `gpu_workers`; not persisted. |
+| CPU `ThreadPoolExecutor` | derived | Sized once at startup from `cpu_workers`; not persisted. |

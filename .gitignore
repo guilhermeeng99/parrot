@@ -1,0 +1,33 @@
+# Node / Bun (frontend)
+node_modules/
+dist/
+.svelte-kit/
+*.tsbuildinfo
+bun.lockb.*
+
+# Rust / Tauri (frontend/src-tauri)
+target/
+**/target/
+
+# Python (sidecar)
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# Parrot user data (voices, generated audio, DB, settings) — never committed
+parrot_data/
+
+# Editors / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.log
+
+# Env
+.env
+.env.*
+!.env.example

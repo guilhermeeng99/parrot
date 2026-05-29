@@ -1,0 +1,24 @@
+Parrot
+Copyright 2026 Guilherme Passos
+
+This product includes software developed as part of the Parrot project,
+licensed under the Apache License, Version 2.0.
+
+------------------------------------------------------------------------
+Third-party components
+------------------------------------------------------------------------
+
+OmniVoice voice model library ("omnivoice")
+  Copyright the OmniVoice / k2-fsa authors (Han Zhu and contributors)
+  Licensed under the Apache License, Version 2.0.
+  https://huggingface.co/  (see the model repository for code and weights)
+
+  Parrot reuses this Apache-2.0 model library for voice cloning and
+  speech synthesis. Parrot's own application code (Svelte UI, Rust shell,
+  Python FastAPI sidecar) is an independent work and does NOT incorporate
+  code from OmniVoice Studio, whose application code is separately licensed
+  under FSL-1.1-ALv2 and is not used here. See docs/LICENSING.md.
+
+  NOTE: the license on the model *code* (Apache-2.0) is distinct from the
+  license on the downloaded model *weights*. Verify the weights' license on
+  the model's distribution page before relying on Parrot commercially.
