@@ -1,6 +1,6 @@
 [package]
 name = "parrot"
-version = "0.0.6"
+version = "0.0.7"
 description = "Parrot — clone a voice, make it speak"
 authors = ["Guilherme Passos"]
 edition = "2021"
