@@ -138,19 +138,24 @@ Synthesize speech and stream WAV back. Writes one `generation_history` row. Cont
 
 ### `GET /generate/progress-stream`
 
-Live per-step progress for the in-flight synthesis, so the Speak UI shows a real %-complete bar instead of an indeterminate spinner. `text/event-stream`; one JSON `GenerationProgressEvent` per `data:` line, `: keepalive` every ~30 s. Parrot is single-user (one generation at a time), so events are broadcast to all subscribers.
+Live per-step progress for the in-flight synthesis, so the Speak UI shows a real %-complete bar instead of an indeterminate spinner. Method **`GET`**; response `Content-Type: text/event-stream` (SSE, one-way server push); one JSON `GenerationProgressEvent` per `data:` line, `: keepalive` comment line every ~30 s on idle. Loopback-only (`127.0.0.1:3900`) and gated like the rest of the engine surface — it carries **no audio**, only progress. Parrot is single-user (one generation at a time), so events are broadcast to every subscriber (the page's one progress bar).
 
 ```jsonc
 // GenerationProgressEvent
 { "phase": "start" | "step" | "done" | "error",
   "step": 0,        // diffusion steps completed
   "total": 16,      // = num_step
-  "pct": 0.0 }      // 0.0–1.0; held < 1.0 until the terminal `done` (tail decode/DSP isn't step-granular)
+  "pct": 0.0 }      // 0.0–1.0; held < 1.0 (ceiling 0.97) until the terminal `done` (tail decode/DSP isn't step-granular)
 ```
 
-The engine exposes no native progress hook, so the sidecar attaches a forward pre-hook that counts the model's per-step forward passes (`generation_progress` service), mirroring the `setup_manager` download broadcaster. The UI opens this **just before** `POST /generate` and closes it when the request settles; failure to open is non-fatal (the bar falls back to indeterminate).
+- **`start`** — published once when a generation begins (clears any stale replayed events); `step = 0`, `total = num_step`, `pct = 0`.
+- **`step`** — one diffusion step completed; `pct = step / total`, clamped below `1.0`.
+- **`done`** — terminal success; `pct = 1.0`. The stream stays open for the next generation, but the UI closes its subscription on this event.
+- **`error`** — terminal failure (the `POST /generate` also 500s); `pct = 0.0`.
 
-> Consumed via `EventSource` (like `/setup/download-stream`): `generate.ts` exposes `subscribeGenerationProgress(onEvent, onError)` wrapping `new EventSource(apiUrl('/generate/progress-stream'))`.
+The engine exposes no native progress hook, so the sidecar counts the model's per-step forward passes in the `generation_progress` service (a worker thread publishes into the event-loop broadcaster, mirroring the `setup_manager` download broadcaster). The Speak UI opens this stream **just before** `POST /generate` so it catches the `start` phase, and closes it on a terminal event / when the request settles; failure to open is non-fatal (the bar falls back to indeterminate). On connect the broadcaster replays a tiny buffer, which may include a prior generation's tail — the store ignores everything until this generation's `start` (see [synthesis.md §Progress](./synthesis.md#progress)).
+
+> Consumed via `EventSource` (like `/setup/download-stream`): `generate.ts` exposes `subscribeGenerationProgress(onEvent)` wrapping `new EventSource(apiUrl('/generate/progress-stream'))` and returns an unsubscribe fn that calls `EventSource.close()`. There is no `onError` arg — `new EventSource` never throws, so a connect failure is non-fatal (the bar stays indeterminate) and surfaces only as `es.onerror`.
 
 ---
 

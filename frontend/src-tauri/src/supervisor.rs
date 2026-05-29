@@ -189,6 +189,22 @@ fn venv_python(app: &AppHandle) -> PathBuf {
     venv_dir(app).join("Scripts").join("python.exe")
 }
 
+/// Marker written ONLY after a fully successful `uv sync`. Its presence (next to
+/// an existing venv python) is what lets a later launch skip the bootstrap. An
+/// interrupted cu124 download leaves python.exe behind WITHOUT this sentinel, so
+/// the fast-path re-syncs instead of booting a torch-less venv (B3). Lives inside
+/// the venv so wiping the venv (Clean & Retry) also clears it.
+fn sync_sentinel(app: &AppHandle) -> PathBuf {
+    venv_dir(app).join(".parrot-sync-complete")
+}
+
+/// Is the bootstrap complete enough to skip? Requires BOTH the venv interpreter
+/// AND the success sentinel — a python.exe without the sentinel is a partial
+/// (interrupted) install that must be re-synced rather than booted broken (B3).
+fn venv_is_ready(app: &AppHandle) -> bool {
+    venv_python(app).exists() && sync_sentinel(app).exists()
+}
+
 /// Where the sidecar's stdout/stderr logs land (and the Tauri log).
 pub fn log_dir(app: &AppHandle) -> PathBuf {
     app.path()
@@ -196,11 +212,35 @@ pub fn log_dir(app: &AppHandle) -> PathBuf {
         .unwrap_or_else(|_| data_dir(app).join("logs"))
 }
 
+/// Open the uv bootstrap log for the given stdio handle (append, so successive
+/// launches + backoff retries accumulate rather than clobbering the prior run). In a
+/// release build (`windows_subsystem = "windows"`, no console) uv's inherited
+/// stdout/stderr would vanish, leaving a failed `uv sync --extra cu124` invisible.
+/// Routing both streams to `<log_dir>/uv_bootstrap.log` makes the failure readable
+/// from Settings → Logs, the same way `spawn_sidecar` files the python child's
+/// output. Falls back to `null` if the log file can't be opened (best-effort).
+fn uv_log_stdio(app: &AppHandle) -> Stdio {
+    let logs = log_dir(app);
+    let _ = std::fs::create_dir_all(&logs);
+    File::options()
+        .create(true)
+        .append(true)
+        .open(logs.join("uv_bootstrap.log"))
+        .map(Stdio::from)
+        .unwrap_or_else(|_| Stdio::null())
+}
+
 /// Does a `/healthz` body identify a real Parrot sidecar? A foreign server
-/// squatting on the port might 200 with junk — the body must carry the ok
-/// payload to count. Pure (no I/O) so it is unit-testable without a server.
+/// squatting on the port might 200 with junk — or merely 200 with a body that
+/// happens to CONTAIN the `"status":"ok"` substring (e.g. inside some other
+/// field). Parse as JSON and assert the TOP-LEVEL `status` field equals `ok`, so
+/// only a real Parrot health envelope counts. Pure (no I/O) so it is unit-testable
+/// without a server.
 fn is_ok_health_body(body: &str) -> bool {
-    body.contains("\"status\":\"ok\"") || body.contains("\"status\": \"ok\"")
+    serde_json::from_str::<serde_json::Value>(body)
+        .ok()
+        .and_then(|v| v.get("status").and_then(|s| s.as_str()).map(str::to_string))
+        .is_some_and(|status| status == "ok")
 }
 
 fn health_ok(port: u16) -> bool {
@@ -307,19 +347,45 @@ fn is_parrot_owned_image(image: &str) -> bool {
     lower == "python.exe" || lower == "uv.exe" || lower == "pythonw.exe"
 }
 
+/// Outcome of waiting on a spawned `uv` child.
+enum UvOutcome {
+    /// Shutdown was requested mid-run; the child was killed + reaped. The caller
+    /// must bail out of the supervise loop.
+    ShutdownRequested,
+    /// The child finished on its own (exit code carried) or polling errored
+    /// (`None` exit). The caller stays on the spawn/health retry path.
+    Exited(Option<std::process::ExitStatus>),
+}
+
+impl UvOutcome {
+    /// Did the child exit cleanly (zero status)? A spawn that never produced a
+    /// status, a non-zero exit, or a shutdown is NOT success — so a partial /
+    /// interrupted `uv sync` is never mistaken for a complete bootstrap (B3).
+    fn succeeded(&self) -> bool {
+        matches!(self, UvOutcome::Exited(Some(status)) if status.success())
+    }
+
+    /// Was the wait cut short by an app-quit (so the caller must bail)?
+    fn is_shutdown(&self) -> bool {
+        matches!(self, UvOutcome::ShutdownRequested)
+    }
+}
+
 /// Poll a spawned `uv` child until it exits, killing + reaping it if shutdown is
-/// requested mid-run. Returns `false` iff shutdown was requested (so the caller
-/// bails out of the supervise loop); `true` when the child finished on its own
-/// (any exit code) or polling errored — the spawn/health path then retries.
-fn wait_uv_or_shutdown(child: &mut Child, state: &SidecarState) -> bool {
+/// requested mid-run. Returns `ShutdownRequested` iff shutdown was requested (so
+/// the caller bails out of the supervise loop); otherwise `Exited(..)` carrying
+/// the child's exit status (or `None` on a poll error) — the spawn/health path
+/// then retries, and the sentinel logic can tell a clean sync from a failed one.
+fn wait_uv_or_shutdown(child: &mut Child, state: &SidecarState) -> UvOutcome {
     loop {
         if state.shutting_down.load(Ordering::SeqCst) {
             let _ = child.kill();
             let _ = child.wait();
-            return false;
+            return UvOutcome::ShutdownRequested;
         }
         match child.try_wait() {
-            Ok(Some(_)) | Err(_) => return true,
+            Ok(Some(status)) => return UvOutcome::Exited(Some(status)),
+            Err(_) => return UvOutcome::Exited(None),
             Ok(None) => std::thread::sleep(Duration::from_millis(200)),
         }
     }
@@ -329,86 +395,151 @@ fn wait_uv_or_shutdown(child: &mut Child, state: &SidecarState) -> bool {
 /// under the writable data dir (`parrot_data/.venv`), NOT inside the installed
 /// sidecar bundle (packaging Rule 4). The project (`pyproject.toml`/`uv.lock`)
 /// is resolved from `sidecar_dir()`; `UV_PROJECT_ENVIRONMENT` redirects uv's
-/// environment to the data-dir venv. A present interpreter short-circuits this
-/// on every later launch.
+/// environment to the data-dir venv. A *complete* bootstrap (interpreter +
+/// success sentinel) short-circuits this on every later launch.
 ///
 /// Returns `false` ONLY when shutdown was requested (the caller then bails out of
 /// the supervise loop). A `uv` failure that is NOT a shutdown returns `true` so
 /// the caller still attempts the spawn; the spawn/health path then accounts it as
 /// a normal failure (backoff + retry), preserving the pre-existing recovery flow.
-/// Both `uv venv` and `uv sync` are spawned + polled (never a blocking
-/// `.status()`) and killed on quit, so a first-run install can't hang app exit
-/// or orphan `uv`.
+/// Both `uv venv` and `uv sync` (and the `nvidia-smi` probe) are spawned + polled
+/// (never a blocking `.status()`) and killed on quit, so a first-run install can't
+/// hang app exit or orphan a child; uv's output is filed to `uv_bootstrap.log`.
 fn ensure_venv(app: &AppHandle, state: &SidecarState) -> bool {
-    let project = sidecar_dir();
-    let venv = venv_dir(app);
-    if venv_python(app).exists() {
-        return true; // already bootstrapped — reused on subsequent launches
+    if venv_is_ready(app) {
+        return true; // fully bootstrapped (python + sentinel) — reused later (B3)
     }
     if state.shutting_down.load(Ordering::SeqCst) {
         return false;
     }
+    // A partial venv (python.exe present, sentinel missing) is an interrupted
+    // prior install — re-run `uv sync` over it rather than booting a torch-less
+    // env. `uv` is idempotent, so re-running `uv venv` over an existing one is safe.
+    let project = sidecar_dir();
+    let venv = venv_dir(app);
 
+    if run_uv_venv(app, state, &project, &venv) == UvStep::ShutdownRequested {
+        return false;
+    }
+    match run_uv_sync(app, state, &project, &venv) {
+        UvStep::ShutdownRequested => false,
+        UvStep::Done { synced } => {
+            if synced {
+                // Mark the bootstrap complete so the next launch can fast-path it.
+                let _ = std::fs::write(sync_sentinel(app), b"ok");
+            }
+            // A failed/partial sync left no sentinel; the spawn/health path then
+            // accounts a missing python as a normal failure (backoff + retry).
+            true
+        }
+    }
+}
+
+/// Result of one bootstrap `uv` step. `Done { synced }` reports whether the step
+/// finished with a clean (zero) exit — used to gate the success sentinel (B3).
+#[derive(PartialEq, Eq)]
+enum UvStep {
+    ShutdownRequested,
+    Done { synced: bool },
+}
+
+/// Run `uv venv` (spawned + polled, output to `uv_bootstrap.log`). `uv venv` can
+/// block on a one-time managed-CPython download (no system Python), so it is
+/// polled too — a quit must not hang on it.
+fn run_uv_venv(app: &AppHandle, state: &SidecarState, project: &PathBuf, venv: &PathBuf) -> UvStep {
     state.set_stage(app, "creating_venv");
-    // `uv venv` can block on a one-time managed-CPython download (no system
-    // Python), so spawn + poll it too — a quit must not hang on it.
-    match no_window(
+    let spawned = no_window(
         Command::new("uv")
             .arg("venv")
-            .current_dir(&project)
-            .env("UV_PROJECT_ENVIRONMENT", &venv),
+            .current_dir(project)
+            .env("UV_PROJECT_ENVIRONMENT", venv),
     )
-    .spawn()
-    {
-        Ok(mut child) => {
-            if !wait_uv_or_shutdown(&mut child, state) {
-                return false;
-            }
-        }
-        Err(_) => state.log(app, "[supervisor] failed to launch `uv venv`"),
+    .stdout(uv_log_stdio(app))
+    .stderr(uv_log_stdio(app))
+    .spawn();
+    let Ok(mut child) = spawned else {
+        state.log(app, "[supervisor] failed to launch `uv venv`");
+        return UvStep::Done { synced: false };
+    };
+    let outcome = wait_uv_or_shutdown(&mut child, state);
+    if outcome.is_shutdown() {
+        return UvStep::ShutdownRequested;
     }
+    UvStep::Done { synced: outcome.succeeded() }
+}
 
+/// Run `uv sync` (spawned + polled, output to `uv_bootstrap.log`). `--no-dev`
+/// keeps pytest/httpx out of the runtime venv; `--extra engine` pulls the model
+/// lib + ML stack; `--extra {cpu|cu124}` picks the torch wheel variant from the
+/// NVIDIA probe so GPU boxes get CUDA and everyone else the CPU wheel
+/// (device-detection.md / packaging Rule 4 + 6). This is the multi-minute step.
+fn run_uv_sync(app: &AppHandle, state: &SidecarState, project: &PathBuf, venv: &PathBuf) -> UvStep {
     state.set_stage(app, "installing_deps");
-    // `--no-dev`: keep pytest/httpx out of the runtime venv. `--extra engine` pulls
-    // the model lib + ML stack; `--extra {cpu|cu124}` picks the torch wheel variant
-    // from NVIDIA detection so GPU boxes get CUDA and everyone else gets the CPU
-    // wheel (device-detection.md / packaging Rule 4 + 6). This is the multi-minute
-    // step, so spawn it and poll — a quit must not block on it.
-    let torch_extra = if has_nvidia_gpu() { "cu124" } else { "cpu" };
+    let torch_extra = if has_nvidia_gpu(state) { "cu124" } else { "cpu" };
     state.log(app, &format!("[supervisor] engine deps: torch variant = {torch_extra}"));
-    match no_window(
+    let spawned = no_window(
         Command::new("uv")
             .args(["sync", "--no-dev", "--extra", "engine", "--extra", torch_extra])
-            .current_dir(&project)
-            .env("UV_PROJECT_ENVIRONMENT", &venv),
+            .current_dir(project)
+            .env("UV_PROJECT_ENVIRONMENT", venv),
     )
-    .spawn()
-    {
-        Ok(mut sync) => {
-            if !wait_uv_or_shutdown(&mut sync, state) {
-                return false;
-            }
-        }
-        Err(_) => state.log(app, "[supervisor] failed to launch `uv sync`"),
+    .stdout(uv_log_stdio(app))
+    .stderr(uv_log_stdio(app))
+    .spawn();
+    let Ok(mut child) = spawned else {
+        state.log(app, "[supervisor] failed to launch `uv sync`");
+        return UvStep::Done { synced: false };
+    };
+    let outcome = wait_uv_or_shutdown(&mut child, state);
+    if matches!(&outcome, UvOutcome::Exited(Some(s)) if !s.success()) {
+        state.log(app, "[supervisor] `uv sync` exited non-zero; see uv_bootstrap.log");
     }
-    // A missing venv python now is surfaced by the spawn/health path, which
-    // accounts it as a normal failure (backoff + retry) — same as the prior flow.
-    true
+    if outcome.is_shutdown() {
+        return UvStep::ShutdownRequested;
+    }
+    UvStep::Done { synced: outcome.succeeded() }
 }
+
+/// Bound on how long the `nvidia-smi` GPU probe may run before we treat it as
+/// "no GPU". A hung/half-installed driver can make `nvidia-smi` block
+/// uninterruptibly, and `ensure_venv` must never block app-quit — so we poll a
+/// spawned child against this deadline (+ the shutdown flag) instead of a
+/// blocking `.status()`.
+const GPU_PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Whether an NVIDIA GPU + driver is present, deciding which torch wheel the
 /// first-run venv installs (CUDA vs CPU). `nvidia-smi` ships with the NVIDIA
 /// driver, so a clean `-L` (list GPUs) exit means CUDA wheels are worth pulling.
-/// Any failure (binary absent, no driver, no device) → CPU-only. This only steers
-/// the wheel SET — `core/device.py` still does the authoritative `torch.cuda`
-/// probe at runtime, so a false positive degrades to CPU rather than breaking.
-fn has_nvidia_gpu() -> bool {
-    no_window(Command::new("nvidia-smi").arg("-L"))
+/// Any failure (binary absent, no driver, no device), a spawn error, OR a probe
+/// that overruns `GPU_PROBE_TIMEOUT` / is interrupted by shutdown → CPU-only.
+/// This only steers the wheel SET — `core/device.py` still does the authoritative
+/// `torch.cuda` probe at runtime, so a false negative degrades to CPU rather than
+/// breaking.
+///
+/// Spawned + polled (never a blocking `.status()`) so a hung driver can't block
+/// app-quit: it honors `state.shutting_down` and a short bounded deadline, the
+/// same pattern as `wait_uv_or_shutdown`.
+fn has_nvidia_gpu(state: &SidecarState) -> bool {
+    let spawned = no_window(Command::new("nvidia-smi").arg("-L"))
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
+        .spawn();
+    let Ok(mut child) = spawned else {
+        return false; // binary absent / spawn failed → no GPU (CPU wheel)
+    };
+    let deadline = Instant::now() + GPU_PROBE_TIMEOUT;
+    loop {
+        if state.shutting_down.load(Ordering::SeqCst) || Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            return false; // quit or hung driver → degrade to CPU
+        }
+        match child.try_wait() {
+            Ok(Some(status)) => return status.success(),
+            Err(_) => return false, // poll error → no GPU
+            Ok(None) => std::thread::sleep(Duration::from_millis(100)),
+        }
+    }
 }
 
 fn spawn_sidecar(app: &AppHandle, port: u16) -> std::io::Result<Child> {
@@ -448,186 +579,265 @@ fn sleep_unless_shutdown(shutting_down: &AtomicBool, dur: Duration) -> bool {
     shutting_down.load(Ordering::SeqCst)
 }
 
+/// The supervise loop's mutable bookkeeping, bundled so the loop body can be
+/// split into focused helpers without a long argument list. (Pure refactor of
+/// what were free `let mut` locals in `start`; semantics unchanged.)
+struct MonitorVars {
+    healthy: bool,
+    had_child: bool,
+    attached: bool,
+    failures: u32,
+    /// When the current child was spawned (None once it's healthy/attached).
+    /// Drives the startup deadline: a child that binds but never serves health is
+    /// killed + counted so a hung-but-alive sidecar still trips the cap.
+    started_at: Option<Instant>,
+}
+
+/// Control-flow signal from a monitor-loop helper back to the loop body — the
+/// helper-friendly stand-in for a bare `break`/`continue`/fall-through.
+enum Flow {
+    /// Leave the supervise loop (shutdown, or a freshly spawned child reaped after
+    /// a quit raced the spawn).
+    Break,
+    /// Restart the loop body from the top.
+    Continue,
+    /// Fall through to the rest of the loop body (health re-check + poll sleep).
+    Next,
+}
+
 /// Start the supervisor on a background thread: attach-or-spawn → health-check →
 /// keep alive (restart on crash, with backoff) until the app shuts down. On
 /// repeated never-healthy starts it parks in `failed` until a Retry command.
 pub fn start(app: AppHandle, port: u16) {
     // Clone for post-spawn state access; the original `app` moves into the thread.
     let app_for_handle = app.clone();
-    let handle = std::thread::spawn(move || {
-        let state = app.state::<SidecarState>();
-        let mut healthy = false;
-        let mut had_child = false;
-        let mut attached = false;
-        let mut failures: u32 = 0;
-        // When the current child was spawned (None once it's healthy/attached).
-        // Drives the startup deadline: a child that binds but never serves health
-        // is killed + counted so a hung-but-alive sidecar still trips the cap.
-        let mut started_at: Option<Instant> = None;
-
-        state.set_stage(&app, "checking");
-
-        while !state.shutting_down.load(Ordering::SeqCst) {
-            // Attach to an already-healthy Parrot sidecar instead of spawning a
-            // duplicate (dev `bun run dev` against a manual backend; a surviving
-            // sidecar after a relaunch).
-            if !attached && !had_child && health_ok(port) {
-                attached = true;
-                healthy = true;
-                state.ready.store(true, Ordering::SeqCst);
-                state.set_stage(&app, "ready");
-                let _ = app.emit("sidecar-ready", port);
-            }
-
-            // An attached external sidecar that died → reclaim and spawn our own.
-            if attached && !health_ok(port) {
-                attached = false;
-                healthy = false;
-                state.ready.store(false, Ordering::SeqCst);
-            }
-
-            // A spawned-but-not-yet-healthy child that overran the startup deadline
-            // is killed here so it counts as a never-healthy failure (otherwise
-            // try_wait would keep returning None forever for a hung process).
-            let deadline_blown = !attached
-                && !healthy
-                && started_at.is_some_and(|t| t.elapsed() >= Duration::from_secs(STARTUP_DEADLINE_SECS));
-            if deadline_blown {
-                state.log(&app, "[supervisor] sidecar never became healthy within startup deadline; killing");
-                if let Some(mut child) = lock(&state.child).take() {
-                    let _ = child.kill();
-                    let _ = child.wait(); // release the port before respawning
-                }
-            }
-
-            let exited = if attached {
-                false
-            } else if deadline_blown {
-                true
-            } else {
-                let mut guard = lock(&state.child);
-                match guard.as_mut() {
-                    Some(child) => matches!(child.try_wait(), Ok(Some(_))),
-                    None => true,
-                }
-            };
-
-            if exited {
-                started_at = None;
-                if had_child {
-                    failures = failures_after_exit(failures, healthy);
-                }
-
-                if failures >= MAX_RAPID_FAILURES {
-                    eprintln!("[supervisor] sidecar failed {failures}× to start; giving up");
-                    state.failed.store(true, Ordering::SeqCst);
-                    state.set_stage(&app, "failed");
-                    let _ = app.emit("sidecar-failed", failures);
-
-                    // Park until a Retry / Clean & Retry command (or shutdown).
-                    if !park_until_retry(&app, &state) {
-                        break;
-                    }
-                    failures = 0;
-                    had_child = false;
-                    continue;
-                }
-
-                let wait = backoff_secs(failures);
-                if wait > 0 {
-                    eprintln!("[supervisor] restarting sidecar in {wait}s (failure #{failures})");
-                    if sleep_unless_shutdown(&state.shutting_down, Duration::from_secs(wait)) {
-                        break;
-                    }
-                }
-
-                // Reclaim the port from a stale Parrot process before spawning,
-                // then wait (bounded) for the port to actually free up rather than
-                // sleeping a fixed interval and racing a slow-to-release socket.
-                if port_in_use(port) && !health_ok(port) {
-                    state.log(&app, "[supervisor] port in use; reclaiming");
-                    kill_orphan_on_port(&app, &state, port);
-                    if !wait_for_port_free(&state.shutting_down, port) {
-                        break; // shutdown requested while waiting
-                    }
-                }
-
-                // The bootstrap (uv sync) can take minutes; abort cleanly if the
-                // user quit during it (also covers a quit during port-wait above).
-                if !ensure_venv(&app, &state) || state.shutting_down.load(Ordering::SeqCst) {
-                    break;
-                }
-
-                state.set_stage(&app, "starting_backend");
-                state.ready.store(false, Ordering::SeqCst);
-                healthy = false;
-
-                match spawn_sidecar(&app, port) {
-                    Ok(child) => {
-                        // Store the child and re-check `shutting_down` ATOMICALLY
-                        // under the child lock: `shutdown()` sets the flag before
-                        // taking the child, so checking it while holding the lock
-                        // closes the spawn-after-shutdown race. The block hands
-                        // back the child only when it was NOT stored, so we can
-                        // reap it (never leave a freshly spawned child orphaned).
-                        let unstored = {
-                            let mut guard = lock(&state.child);
-                            if state.shutting_down.load(Ordering::SeqCst) {
-                                Some(child)
-                            } else {
-                                *guard = Some(child);
-                                None
-                            }
-                        };
-                        if let Some(mut orphan) = unstored {
-                            let _ = orphan.kill();
-                            let _ = orphan.wait();
-                            break;
-                        }
-                        had_child = true;
-                        started_at = Some(Instant::now());
-                        eprintln!("[supervisor] spawned sidecar on :{port}");
-                    }
-                    Err(e) => {
-                        eprintln!("[supervisor] failed to spawn sidecar: {e}");
-                        state.log(&app, &format!("[supervisor] spawn failed: {e}"));
-                        had_child = false;
-                        failures += 1;
-                        continue;
-                    }
-                }
-            }
-
-            if !healthy && health_ok(port) {
-                healthy = true;
-                started_at = None; // cleared the startup-deadline clock
-                state.ready.store(true, Ordering::SeqCst);
-                state.set_stage(&app, "ready");
-                let _ = app.emit("sidecar-ready", port);
-                eprintln!("[supervisor] sidecar healthy on :{port}");
-            }
-
-            if sleep_unless_shutdown(&state.shutting_down, POLL_INTERVAL) {
-                break;
-            }
-        }
-
-        // Shutting down — kill the child and BLOCK on its exit so the loopback
-        // port is released before this thread (and the app) exits. Take it out
-        // first so the guard drops before `state`. An attached external sidecar
-        // is left running on purpose (we didn't spawn it).
-        let last = lock(&state.child).take();
-        if let Some(mut child) = last {
-            let _ = child.kill();
-            let _ = child.wait();
-            eprintln!("[supervisor] sidecar terminated");
-        }
-    });
+    let handle = std::thread::spawn(move || run_monitor(app, port));
 
     // Keep the monitor handle so shutdown() can join it (bounded) — this is what
     // guarantees no spawn can race teardown after exit returns.
     if let Some(state) = app_for_handle.try_state::<SidecarState>() {
         *lock(&state.monitor) = Some(handle);
+    }
+}
+
+/// The supervise loop itself (runs on the monitor thread). Each iteration:
+/// attach-or-detect-exit → (respawn on exit) → mark-ready-on-health → poll sleep.
+/// The per-iteration work lives in focused helpers; this body is just the
+/// sequencing + the `Flow` dispatch.
+fn run_monitor(app: AppHandle, port: u16) {
+    let state = app.state::<SidecarState>();
+    let mut vars = MonitorVars {
+        healthy: false,
+        had_child: false,
+        attached: false,
+        failures: 0,
+        started_at: None,
+    };
+
+    state.set_stage(&app, "checking");
+
+    while !state.shutting_down.load(Ordering::SeqCst) {
+        try_attach(&app, &state, port, &mut vars);
+
+        if detect_exit(&app, &state, &mut vars) {
+            match handle_exit_and_respawn(&app, &state, port, &mut vars) {
+                Flow::Break => break,
+                Flow::Continue => continue,
+                Flow::Next => {}
+            }
+        }
+
+        mark_ready_if_healthy(&app, &state, port, &mut vars);
+
+        if sleep_unless_shutdown(&state.shutting_down, POLL_INTERVAL) {
+            break;
+        }
+    }
+
+    reap_child_on_shutdown(&state);
+}
+
+/// Attach to an already-healthy Parrot sidecar instead of spawning a duplicate
+/// (dev `bun run dev` against a manual backend; a surviving sidecar after a
+/// relaunch), and drop the attachment if that external sidecar later dies.
+fn try_attach(app: &AppHandle, state: &SidecarState, port: u16, vars: &mut MonitorVars) {
+    if !vars.attached && !vars.had_child && health_ok(port) {
+        vars.attached = true;
+        vars.healthy = true;
+        state.ready.store(true, Ordering::SeqCst);
+        state.set_stage(app, "ready");
+        let _ = app.emit("sidecar-ready", port);
+    }
+    // An attached external sidecar that died → reclaim and spawn our own.
+    if vars.attached && !health_ok(port) {
+        vars.attached = false;
+        vars.healthy = false;
+        state.ready.store(false, Ordering::SeqCst);
+    }
+}
+
+/// Decide whether the current (non-attached) child has exited. A spawned-but-not-
+/// yet-healthy child that overran the startup deadline is killed here so it counts
+/// as a never-healthy failure (otherwise `try_wait` would keep returning `None`
+/// forever for a hung process).
+fn detect_exit(app: &AppHandle, state: &SidecarState, vars: &mut MonitorVars) -> bool {
+    let deadline_blown = !vars.attached
+        && !vars.healthy
+        && vars
+            .started_at
+            .is_some_and(|t| t.elapsed() >= Duration::from_secs(STARTUP_DEADLINE_SECS));
+    if deadline_blown {
+        state.log(app, "[supervisor] sidecar never became healthy within startup deadline; killing");
+        if let Some(mut child) = lock(&state.child).take() {
+            let _ = child.kill();
+            let _ = child.wait(); // release the port before respawning
+        }
+    }
+
+    if vars.attached {
+        return false;
+    }
+    if deadline_blown {
+        return true;
+    }
+    let mut guard = lock(&state.child);
+    match guard.as_mut() {
+        Some(child) => matches!(child.try_wait(), Ok(Some(_))),
+        None => true,
+    }
+}
+
+/// Handle a detected child exit: account the failure, give up (park) at the cap,
+/// otherwise back off, reclaim the port, ensure the venv, and respawn. Returns a
+/// `Flow` telling the loop body to break, restart, or fall through.
+fn handle_exit_and_respawn(
+    app: &AppHandle,
+    state: &SidecarState,
+    port: u16,
+    vars: &mut MonitorVars,
+) -> Flow {
+    vars.started_at = None;
+    if vars.had_child {
+        vars.failures = failures_after_exit(vars.failures, vars.healthy);
+    }
+
+    if vars.failures >= MAX_RAPID_FAILURES {
+        return give_up_until_retry(app, state, vars);
+    }
+
+    let wait = backoff_secs(vars.failures);
+    if wait > 0 {
+        eprintln!("[supervisor] restarting sidecar in {wait}s (failure #{})", vars.failures);
+        if sleep_unless_shutdown(&state.shutting_down, Duration::from_secs(wait)) {
+            return Flow::Break;
+        }
+    }
+
+    // Reclaim the port from a stale Parrot process before spawning, then wait
+    // (bounded) for the port to actually free up rather than sleeping a fixed
+    // interval and racing a slow-to-release socket.
+    if port_in_use(port) && !health_ok(port) {
+        state.log(app, "[supervisor] port in use; reclaiming");
+        kill_orphan_on_port(app, state, port);
+        if !wait_for_port_free(&state.shutting_down, port) {
+            return Flow::Break; // shutdown requested while waiting
+        }
+    }
+
+    // The bootstrap (uv sync) can take minutes; abort cleanly if the user quit
+    // during it (also covers a quit during the port-wait above).
+    if !ensure_venv(app, state) || state.shutting_down.load(Ordering::SeqCst) {
+        return Flow::Break;
+    }
+
+    state.set_stage(app, "starting_backend");
+    state.ready.store(false, Ordering::SeqCst);
+    vars.healthy = false;
+    respawn_sidecar(app, state, port, vars)
+}
+
+/// Latch the terminal `failed` state, emit `sidecar-failed`, and park until a
+/// Retry/Clean command (or shutdown). On retry, reset the counters and restart
+/// the loop; on shutdown, break out.
+fn give_up_until_retry(app: &AppHandle, state: &SidecarState, vars: &mut MonitorVars) -> Flow {
+    eprintln!("[supervisor] sidecar failed {}× to start; giving up", vars.failures);
+    state.failed.store(true, Ordering::SeqCst);
+    state.set_stage(app, "failed");
+    let _ = app.emit("sidecar-failed", vars.failures);
+
+    if !park_until_retry(app, state) {
+        return Flow::Break;
+    }
+    vars.failures = 0;
+    vars.had_child = false;
+    Flow::Continue
+}
+
+/// Spawn the sidecar and store it under the child lock, re-checking `shutting_down`
+/// atomically to close the spawn-after-shutdown race. A spawn error is accounted as
+/// a failure and the loop restarts; a child reaped because a quit raced the spawn
+/// breaks the loop.
+fn respawn_sidecar(app: &AppHandle, state: &SidecarState, port: u16, vars: &mut MonitorVars) -> Flow {
+    let child = match spawn_sidecar(app, port) {
+        Ok(child) => child,
+        Err(e) => {
+            eprintln!("[supervisor] failed to spawn sidecar: {e}");
+            state.log(app, &format!("[supervisor] spawn failed: {e}"));
+            vars.had_child = false;
+            vars.failures += 1;
+            return Flow::Continue;
+        }
+    };
+
+    // Store the child and re-check `shutting_down` ATOMICALLY under the child lock:
+    // `shutdown()` sets the flag before taking the child, so checking it while
+    // holding the lock closes the spawn-after-shutdown race. The block hands back
+    // the child only when it was NOT stored, so we can reap it (never leave a
+    // freshly spawned child orphaned).
+    let unstored = {
+        let mut guard = lock(&state.child);
+        if state.shutting_down.load(Ordering::SeqCst) {
+            Some(child)
+        } else {
+            *guard = Some(child);
+            None
+        }
+    };
+    if let Some(mut orphan) = unstored {
+        let _ = orphan.kill();
+        let _ = orphan.wait();
+        return Flow::Break;
+    }
+    vars.had_child = true;
+    vars.started_at = Some(Instant::now());
+    eprintln!("[supervisor] spawned sidecar on :{port}");
+    Flow::Next
+}
+
+/// Promote a freshly-spawned child to healthy once `/healthz` answers, clearing
+/// the startup-deadline clock and emitting `sidecar-ready`.
+fn mark_ready_if_healthy(app: &AppHandle, state: &SidecarState, port: u16, vars: &mut MonitorVars) {
+    if vars.healthy || !health_ok(port) {
+        return;
+    }
+    vars.healthy = true;
+    vars.started_at = None; // cleared the startup-deadline clock
+    state.ready.store(true, Ordering::SeqCst);
+    state.set_stage(app, "ready");
+    let _ = app.emit("sidecar-ready", port);
+    eprintln!("[supervisor] sidecar healthy on :{port}");
+}
+
+/// Shutting down — kill the child and BLOCK on its exit so the loopback port is
+/// released before the monitor thread (and the app) exits. Take it out first so
+/// the guard drops before `state`. An attached external sidecar is left running on
+/// purpose (we didn't spawn it).
+fn reap_child_on_shutdown(state: &SidecarState) {
+    let last = lock(&state.child).take();
+    if let Some(mut child) = last {
+        let _ = child.kill();
+        let _ = child.wait();
+        eprintln!("[supervisor] sidecar terminated");
     }
 }
 
@@ -745,6 +955,40 @@ mod tests {
         assert!(failures >= MAX_RAPID_FAILURES);
     }
 
+    /// Build an `ExitStatus` with the given raw code, cross-platform, so the
+    /// sentinel-gating logic can be unit-tested without spawning a real process.
+    fn exit_status(code: i32) -> std::process::ExitStatus {
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::ExitStatusExt;
+            std::process::ExitStatus::from_raw(code as u32)
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::ExitStatusExt;
+            std::process::ExitStatus::from_raw(code << 8) // wait-status: code in high byte
+        }
+    }
+
+    #[test]
+    fn uv_outcome_succeeds_only_on_a_clean_exit() {
+        // Only a zero exit gates the success sentinel (B3): a non-zero exit, a
+        // poll error (no status), and a shutdown are all NOT success — so a
+        // partial/interrupted `uv sync` never writes the "bootstrap complete"
+        // marker that the next launch fast-paths on.
+        assert!(UvOutcome::Exited(Some(exit_status(0))).succeeded());
+        assert!(!UvOutcome::Exited(Some(exit_status(1))).succeeded());
+        assert!(!UvOutcome::Exited(None).succeeded());
+        assert!(!UvOutcome::ShutdownRequested.succeeded());
+    }
+
+    #[test]
+    fn uv_outcome_is_shutdown_only_when_quit_requested() {
+        assert!(UvOutcome::ShutdownRequested.is_shutdown());
+        assert!(!UvOutcome::Exited(Some(exit_status(0))).is_shutdown());
+        assert!(!UvOutcome::Exited(None).is_shutdown());
+    }
+
     #[test]
     fn resolve_port_default_and_overrides() {
         let prev = std::env::var("PARROT_PORT").ok();
@@ -808,9 +1052,9 @@ mod tests {
 
     #[test]
     fn ok_health_body_accepts_both_spacings() {
-        // The sidecar serializes compact JSON, but tolerate a pretty-printer's
-        // space after the colon so a proxy/middleware reformat doesn't read as
-        // a foreign squatter.
+        // The sidecar serializes compact JSON, but JSON parsing is
+        // whitespace-insensitive so a pretty-printer's space after the colon (a
+        // proxy/middleware reformat) still reads as our own healthy envelope.
         assert!(is_ok_health_body(r#"{"status":"ok"}"#));
         assert!(is_ok_health_body(r#"{"status": "ok"}"#));
         // Realistic body with extra fields around the marker.
@@ -828,5 +1072,19 @@ mod tests {
         assert!(!is_ok_health_body("not json at all"));
         // Looks similar but isn't the ok marker.
         assert!(!is_ok_health_body(r#"{"status":"okay"}"#));
+    }
+
+    #[test]
+    fn ok_health_body_rejects_substring_match_not_top_level() {
+        // A foreign 200 whose body merely CONTAINS the marker (inside another
+        // field, or as a nested value) must NOT be mis-attached as the sidecar —
+        // only a TOP-LEVEL `status == "ok"` counts. This is the regression the
+        // JSON parse fixes vs. the prior raw substring match.
+        assert!(!is_ok_health_body(r#"{"message":"the status:ok page is here"}"#));
+        assert!(!is_ok_health_body(r#"{"status":"degraded","detail":{"status":"ok"}}"#));
+        assert!(!is_ok_health_body(r#"{"health":{"status":"ok"}}"#));
+        // Top-level `status` of the wrong JSON type is not the ok string.
+        assert!(!is_ok_health_body(r#"{"status":true}"#));
+        assert!(!is_ok_health_body(r#"{"status":1}"#));
     }
 }

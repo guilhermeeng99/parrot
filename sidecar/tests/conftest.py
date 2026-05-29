@@ -24,6 +24,14 @@ class FakeBackend:
     sampling_rate = 24000
 
     def synthesize(self, text, *, seed=None, **kw):
+        # Drive the real begin→report→finish progress plumbing the way the engine
+        # does: one progress_cb call per diffusion step, so tests exercise the bus
+        # instead of a no-op stub.
+        progress_cb = kw.get("progress_cb")
+        num_step = int(kw.get("num_step", 16) or 16)
+        if progress_cb is not None:
+            for i in range(num_step):
+                progress_cb(i + 1, num_step)
         n = max(2400, min(24000, len(text) * 240))  # length scales with text
         t = np.linspace(0.0, 1.0, n, dtype=np.float32)
         return (np.sin(2 * np.pi * 220 * t) * 0.2).astype(np.float32)

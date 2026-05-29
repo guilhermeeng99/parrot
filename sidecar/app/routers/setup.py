@@ -1,10 +1,11 @@
 """`/setup/*` — first-run model gate + download (first-run-setup.md)."""
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from ..services import setup_manager as svc
+from .deps import require_loopback
 
 router = APIRouter(prefix="/setup")
 
@@ -24,7 +25,7 @@ def start_download(body: DownloadRequest) -> dict:
 
 
 @router.get("/download-stream")
-async def download_stream():
+async def download_stream(_: None = Depends(require_loopback)):
     return StreamingResponse(
         svc.download_stream(),
         media_type="text/event-stream",

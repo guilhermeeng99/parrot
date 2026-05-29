@@ -23,6 +23,25 @@ log = logging.getLogger(__name__)
 
 _gpu_pool: ThreadPoolExecutor | None = None
 
+# Serializes a whole begin()→infer→finish() section so only ONE generation drives
+# the progress bus / registers the per-call forward hook at a time. The progress
+# bus and the shared singleton model's forward-hook are single-generation BY
+# DESIGN, yet the WS conversational loop and up-to-4 GPU workers can otherwise
+# overlap calls on the one bus + one model — interleaving begin/report/finish and
+# double-registering the hook. NOT performance-critical: Parrot is single-user
+# clone-and-speak, so back-to-back generations queuing here is the intended
+# behavior, not a bottleneck. Lazily created (like model_manager._get_lock) so it
+# binds to the running loop, not import time.
+_run_lock: asyncio.Lock | None = None
+
+
+def _get_run_lock() -> asyncio.Lock:
+    global _run_lock
+    if _run_lock is None:
+        _run_lock = asyncio.Lock()
+    return _run_lock
+
+
 _OOM_MESSAGE = (
     "TTS engine stopped mid-generation. This usually means it ran out of memory. "
     "Try the Flush button to reload the model, then regenerate. Underlying error: {e}"
@@ -72,10 +91,7 @@ async def run(params: dict) -> dict:
 
     # Real %-complete progress: the engine calls `progress_cb` once per diffusion
     # step (omnivoice has no native hook — tts counts the model's forward passes),
-    # and we fan that out over SSE for the Speak UI's bar. begin() before the
-    # executor so a subscriber that connects first sees the start phase.
-    generation_progress.begin(num_step)
-
+    # and generation_progress fans that out over SSE for the Speak UI's bar.
     def _on_step(done: int, total: int) -> None:
         generation_progress.report(done, total)  # publishes thread-safely
 
@@ -102,21 +118,25 @@ async def run(params: dict) -> dict:
         )
         return samples, time.perf_counter() - started
 
-    try:
-        samples, gen_time = await loop.run_in_executor(gpu_pool(), _infer)
-    except ServiceError:
-        generation_progress.fail()
-        raise
-    except Exception as e:
-        generation_progress.fail()
-        if _looks_like_oom(e):
-            log.warning("Synthesis OOM; flushing model: %s", e)
-            model_manager.flush()
-            raise ServiceError(500, _OOM_MESSAGE.format(e=e))
-        log.exception("Synthesis failed")
-        raise ServiceError(500, _GENERIC_MESSAGE.format(e=e))
-
-    generation_progress.finish()
+    # Serialize the whole progress-bus + forward-hook section: begin() before the
+    # executor so a subscriber that connects first sees the start phase, and only
+    # one generation may own the single bus/hook at a time (see _run_lock).
+    async with _get_run_lock():
+        generation_progress.begin(num_step)
+        try:
+            samples, gen_time = await loop.run_in_executor(gpu_pool(), _infer)
+        except ServiceError:
+            generation_progress.fail()
+            raise
+        except Exception as e:
+            generation_progress.fail()
+            if _looks_like_oom(e):
+                log.warning("Synthesis OOM; flushing model: %s", e)
+                model_manager.flush()
+                raise ServiceError(500, _OOM_MESSAGE.format(e=e))
+            log.exception("Synthesis failed")
+            raise ServiceError(500, _GENERIC_MESSAGE.format(e=e))
+        generation_progress.finish()
 
     return {
         "samples": samples,

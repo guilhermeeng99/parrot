@@ -43,23 +43,40 @@ export async function speak(params: GenerateParams): Promise<void> {
   revokePrevious();
   synthesis.set({ state: "submitting", progress: 0 });
 
-  // Live %-complete from the engine's per-step SSE. Best-effort: if the stream
-  // can't open, generation still runs — the bar just stays at "Preparing…".
+  // Live %-complete from the engine's per-step SSE. Best-effort and FIRE-AND-FORGET:
+  // we must NOT await the subscribe, or generateSpeech() would start a microtask
+  // later than the caller (and the abort signal) expects. If the stream can't
+  // open, generation still runs — the bar just stays at "Preparing…".
   // The stream replays a small buffer on connect, which can include the PREVIOUS
   // generation's tail — ignore everything until THIS generation's `start` so the
   // bar doesn't flash to the old 100% before resetting.
-  let stopProgress: (() => void) | null = null;
+  // Default to a no-op so the finally can always call it; the real unsubscribe
+  // replaces it once the SSE stream connects (assigned in the .then below).
+  let stopProgress: () => void = () => {};
+  let settled = false; // set in finally — guards a subscribe that resolves too late
   let sawStart = false;
-  try {
-    stopProgress = await subscribeGenerationProgress((e) => {
-      if (e.phase === "start") sawStart = true;
-      if (!sawStart) return; // skip replayed events from a prior generation
-      const pct = e.phase === "done" ? 1 : e.pct;
-      synthesis.update((s) => (s.state === "submitting" ? { ...s, progress: pct } : s));
+  subscribeGenerationProgress((e) => {
+    if (e.phase === "start") sawStart = true;
+    if (!sawStart) return; // skip replayed events from a prior generation
+    if (e.phase === "done") {
+      synthesis.update((s) => (s.state === "submitting" ? { ...s, progress: 1 } : s));
+      return;
+    }
+    if (e.phase === "error") return; // let speak()'s catch drive the error UI, not the bar
+    // Monotonic: never let a late/low pct snap the bar backwards.
+    synthesis.update((s) =>
+      s.state === "submitting" ? { ...s, progress: Math.max(s.progress ?? 0, e.pct) } : s,
+    );
+  })
+    .then((stop) => {
+      // The request may already have settled by the time the stream connects;
+      // if so, close it immediately so we never leak the EventSource.
+      if (settled) stop();
+      else stopProgress = stop;
+    })
+    .catch(() => {
+      /* no progress stream — indeterminate bar; generation continues regardless */
     });
-  } catch {
-    /* no progress stream — fall through with an indeterminate bar */
-  }
 
   try {
     const result = await generateSpeech(params, controller.signal);
@@ -75,7 +92,8 @@ export async function speak(params: GenerateParams): Promise<void> {
     const message = errMsg(e);
     synthesis.set({ state: "error", error: message, oom: /out of memory/i.test(message) });
   } finally {
-    stopProgress?.();
+    settled = true;
+    stopProgress();
     if (inFlight === controller) inFlight = null;
   }
 }

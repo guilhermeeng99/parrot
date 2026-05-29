@@ -10,16 +10,14 @@ are indirected so tests exercise the status/cooldown/event logic without a real
 network or multi-GB download.
 """
 
-import asyncio
-import json
 import logging
 import shutil
 import threading
 import time
-from collections import deque
 from pathlib import Path
 
 from .. import config
+from ..core.sse_broadcast import Broadcaster, keepalive_stream
 from .errors import ServiceError
 
 log = logging.getLogger(__name__)
@@ -33,44 +31,13 @@ _active: set[str] = set()
 _active_lock = threading.Lock()
 
 
-# ---------------------------------------------------------------------------
-# Event broadcaster (background thread → async SSE generator)
-# ---------------------------------------------------------------------------
-class _Broadcaster:
-    def __init__(self) -> None:
-        self._subs: set[asyncio.Queue] = set()
-        self._recent: deque = deque(maxlen=50)
-        self._loop: asyncio.AbstractEventLoop | None = None
-
-    def bind_loop(self, loop: asyncio.AbstractEventLoop) -> None:
-        self._loop = loop
-
-    def publish(self, event: dict) -> None:
-        self._recent.append(event)
-        loop = self._loop
-        if loop is None:
-            return
-        for q in list(self._subs):
-            try:
-                loop.call_soon_threadsafe(q.put_nowait, event)
-            except RuntimeError:
-                pass  # loop closed; subscriber is going away anyway
-
-    def subscribe(self) -> asyncio.Queue:
-        q: asyncio.Queue = asyncio.Queue()
-        for event in list(self._recent):  # replay so a late client sees the phase
-            q.put_nowait(event)
-        self._subs.add(q)
-        return q
-
-    def unsubscribe(self, q: asyncio.Queue) -> None:
-        self._subs.discard(q)
+# Background download thread → async SSE generator. A wider replay buffer than the
+# synthesis bus: a download emits many byte-progress events, and a late splash
+# should still catch the current phase. (Shared fan-out lives in core.sse_broadcast.)
+_bus = Broadcaster(replay_maxlen=50)
 
 
-_bus = _Broadcaster()
-
-
-def bind_loop(loop: asyncio.AbstractEventLoop) -> None:
+def bind_loop(loop) -> None:
     """Called from the app lifespan so the worker thread can publish into the loop."""
     _bus.bind_loop(loop)
 
@@ -254,19 +221,17 @@ def start_download(repo_id: str) -> dict:
     return {"status": "download_started", "repo_id": repo_id}
 
 
-async def download_stream():
+def _is_terminal(event: dict) -> bool:
+    # A download ends on install_done/install_error; close the stream after one so a
+    # leaked splash client can't keep the generator + queue alive past the download.
+    return event.get("phase") in ("install_done", "install_error")
+
+
+def download_stream():
     """Async generator of SSE byte chunks: one `data:` line per progress event,
-    `: keepalive` on idle (~30 s) so proxies don't drop the stream."""
-    q = _bus.subscribe()
-    try:
-        while True:
-            try:
-                event = await asyncio.wait_for(q.get(), timeout=30.0)
-                yield f"data: {json.dumps(event)}\n\n".encode("utf-8")
-            except asyncio.TimeoutError:
-                yield b": keepalive\n\n"
-    finally:
-        _bus.unsubscribe(q)
+    `: keepalive` on idle (~30 s) so proxies don't drop the stream, and STOP after
+    a terminal `install_done`/`install_error`. (Shared fan-out + cleanup helper.)"""
+    return keepalive_stream(_bus, is_terminal=_is_terminal)
 
 
 def _reset_for_tests() -> None:

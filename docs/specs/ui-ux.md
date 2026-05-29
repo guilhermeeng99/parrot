@@ -68,7 +68,7 @@ Owner: [first-run-setup.md](./first-run-setup.md). This is the make-or-break scr
   - `installing_deps` → "Installing the engine (this is a one-time step, a few minutes)…"
   - `starting_backend` → "Waking the engine…"
 - A collapsible **"Show details"** disclosure reveals the live `bootstrap-log` tail in a `font-mono text-body` scroll panel (token-redacted per [first-run-setup.md §2](./first-run-setup.md)). Collapsed by default — friendly first, diagnostic on demand.
-- `failed{message}` → the **error layout** ([§4](#4--interaction-states-the-contract)): `danger` heading "Parrot's engine couldn't start.", the supervisor message + stderr tail in the mono panel, and two **PrimaryButton**-class actions — **Retry** and a secondary **Clean & Retry** (`rounded-lg border border-platinum-tint bg-snow-white …`, the "outline" button variant). Copy names the likely cause when known (port held, deps failed).
+- `failed{message}` → the **error layout** ([§4](#4--interaction-states-the-contract)): `danger` heading "Parrot's engine couldn't start.", the supervisor stage message in the mono panel (the `sidecar-failed` event carries a failure count, not a stderr tail; the raw sidecar stderr lives in `backend_err.log`, reachable via Settings → backend log — see [architecture.md §3.4](./architecture.md)), and two **PrimaryButton**-class actions — **Retry** and a secondary **Clean & Retry** (`rounded-lg border border-platinum-tint bg-snow-white …`, the "outline" button variant). Copy names the likely cause when known (port held, deps failed).
 
 **Model-download gate (sidecar-owned, after `/healthz`).** Once health is green the UI calls `GET /setup/status`. If `models_ready=false`, the gate Card is shown and Clone/Speak stay disabled (§1.1). Layout — one centered **Card**:
 - Title `text-heading`: **"One more step — download the voice model."**
@@ -133,11 +133,10 @@ Owner: [synthesis.md](./synthesis.md). Type text → pick a voice → generate �
 - **Advanced** disclosure (collapsed, copy "Advanced — you probably don't need this"): exposes the [synthesis.md](./synthesis.md) advanced params — `seed` (NumberInput), `num_step`, `guidance_scale`, `effect_preset` (Select over the DSP preset table in [synthesis.md](./synthesis.md), default `broadcast`), `t_shift`, `denoise`, `postprocess_output`, `duration`. `instruct` and `ref_audio`/`ref_text` are **hidden** (driven by the clone flow / de-emphasized).
 - **PrimaryButton** "Speak" (full-row on narrow widths). Disabled when text is empty.
 
-**Generate lifecycle** (maps to the synthesis state machine in [synthesis.md](./synthesis.md) and [§4](#4--interaction-states-the-contract)):
-- `submitting` → Speak button shows **Spinner** + "Sending…" + disabled.
-- `waitingForModel` → a non-blocking **model-loading pill** (`Badge`-style, `pale-gray`/`glacier-blue`) "Loading the voice model — {progress}%" reading the load sub-stage from `GET /engine/status`. First-ever generation may sit here while weights load; the rest of the UI stays interactive.
-- `generating` → button "Generating…" + Spinner; the page does not freeze (inference runs off the event loop, [synthesis.md BR-2](./synthesis.md)).
+**Generate lifecycle** (maps to the synthesis state machine in [synthesis.md §State Machines](./synthesis.md#state-machines) and [§4](#4--interaction-states-the-contract)). The store has exactly four states — `idle → submitting → done | error` — with a `progress` (0–1) field driving the bar while `submitting`:
+- `submitting` → the Speak button reads **"Generating…"** and is disabled, and a **progress bar** (`role="progressbar"`) below it reads the store's `progress` field (fed by the `GET /generate/progress-stream` SSE; see [synthesis.md §Progress](./synthesis.md#progress)). While `progress == 0` (the cold model load, before any diffusion step) the phase label is **"Preparing model…"** with the subline "Loading the voice model into memory (first run of the session is slower)." — first-ever generation sits here while weights load, and the rest of the UI stays interactive (inference runs off the event loop, [synthesis.md BR-2](./synthesis.md)). Once steps complete the bar fills with the real percent and the label switches to **"Generating…"** ("Synthesizing on the diffusion steps — almost there."). The coarse phase is announced via `aria-live`, not every per-step tick. If the SSE can't open, the bar just sits at its initial value (best-effort).
 - `done` → the **Result Card** fills and the History list re-fetches.
+- `error` → the **Speak-specific error mapping** below. A user-cancel (navigating away / a new Speak) aborts quietly and is **not** an error.
 
 **Result Card** (shown after the first generation this session):
 - A full-width **AudioPlayer** (§3) on the returned WAV, auto-focusable, with **Download / Export** (native save dialog → write the WAV; default name from `X-Audio-Id`).
@@ -218,7 +217,7 @@ Every async action in Parrot renders the **same five states** with the same DS t
 | Download model | indeterminate→determinate ProgressBar | — | gate clears → Clone | offline/`install_error` → Retry (cooldown); gated → token Field |
 | Save voice | "Saving…" + Spinner | — | toast + library refresh | `415`/`422`/mic-denied → keep clip, retry / upload instead |
 | List profiles | Spinner (first load only; refresh is silent) | "clone your first voice" | list renders | stale list kept + toast |
-| Generate (Speak) | "Sending…/Loading model %/Generating…" | — | Result Card + history refresh | OOM → Flush & retry; `500` → view log |
+| Generate (Speak) | "Generating…" button + progress bar ("Preparing model…" at 0%, then "Generating… {pct}%") | — | Result Card + history refresh | OOM → Flush & retry; `500` → view log |
 | Lock / Unlock / Rename / Delete | optimistic flip + reconcile | — | toast | rollback + toast; `404` → drop & refresh |
 | Save / Test / Clear token | "Saving…"/"Testing…" + Spinner | — | success badge / "signed in as {user}" | invalid → non-blocking banner; sidecar-down → retry |
 
@@ -254,7 +253,7 @@ The path the whole app is built around — first launch to first exported clip. 
                      ▼                                  ▼
                  SPEAK screen ◄────────────────────── (voice preselected)
             type text → pick voice → (speed/lang) → Speak
-                     │ POST /generate  (waitingForModel? → generating)
+                     │ POST /generate  (submitting + progress bar)
                      ▼  200 + audio/wav
                  RESULT card: AudioPlayer ──► PLAY / EXPORT (.wav)
                      │ optional: "Lock as reference" (POST /profiles/{id}/lock)

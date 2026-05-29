@@ -2,7 +2,7 @@
 
 The system map for **Parrot** — a fully-local desktop app that does two things: **clone a voice** from a short reference sample, and **speak typed text** in that voice. No accounts, no API keys, no cloud. This is the first spec a new contributor should read; every other spec assumes the process model, port model, and lifecycle described here.
 
-Parrot is a focused fork of OmniVoice Studio. It keeps the voice-cloning engine and strips everything else (dubbing, dictation/ASR, gallery, batch, marketplace, the multi-engine picker). It ships **one** TTS backend: `omnivoice` (pure-Python via `transformers`/PyTorch). The optional C++ GGUF backend is **dropped** — the default build produces audio with no extra setup.
+Parrot is an independent, Apache-2.0 open-source app — **not** a code fork of OmniVoice Studio. It reuses **only** the Apache-2.0 `omnivoice` model library for inference and reimplements its own app (Svelte UI, Rust shell, Python sidecar) from these specs; OmniVoice's FSL-1.1-ALv2 app code is a design reference only, never copied (see [../LICENSING.md](../LICENSING.md)). Scoped to just clone-and-speak, it ships none of OmniVoice's other features (dubbing, dictation/ASR, gallery, batch, marketplace, the multi-engine picker). It ships **one** TTS backend: `omnivoice` (pure-Python via `transformers`/PyTorch). There is no optional C++ GGUF backend — the default build produces audio with no extra setup.
 
 ---
 
@@ -129,7 +129,7 @@ Checking
 
 ### 3.4 — Restart-on-crash with backoff
 
-- If the sidecar exits **during startup polling**, the supervisor detects the dead child (it reaps the exit status), reads the stderr tail, and moves to `Failed { message }` with that tail attached — it does not silently spin.
+- If the sidecar exits **during startup polling**, the supervisor detects the dead child (it reaps the exit status) and counts it as a never-healthy start — it does not silently spin. After `MAX_RAPID_FAILURES` (5) consecutive never-healthy starts it moves to `Failed` and emits `sidecar-failed` carrying the **failure count**. The raw stderr is already on disk in `backend_err.log` (§7); attaching its tail to the failure event is a future refinement (see §3.1).
 - Recovery is explicit and bounded: the splash exposes **Retry** and **Clean & Retry** actions (Tauri commands) that reset the state machine and re-run the spawn sequence. **Clean & Retry** additionally removes the bootstrapped `parrot_data/.venv` dir (corrupt venv) and kills any stale sidecar still holding the port before re-bootstrapping.
 - Restart attempts use an **exponential backoff** between tries (a short initial delay, doubling, capped) so a hard-crashing engine doesn't hot-loop the GPU or flood the logs. A surviving-but-unhealthy sidecar is always killed before a fresh spawn so two engines never race for `:3900`.
 
@@ -215,7 +215,7 @@ ready ──(idle timeout on the engine)──► idle   (model unloaded to free
 
 - **Two engines racing for `:3900`.** Always kill an unhealthy squatter before spawning; never spawn a second sidecar while a healthy one is attached. Single-instance prevents a second app launch from competing.
 - **Sidecar healthy but model not loaded.** `/healthz` green (`{"status":"ok"}`) ≠ ready to synthesize. The UI must read the model-status field, not infer readiness from health.
-- **First-run download is slow / flaky.** Dep + model download can take many minutes; the 300 s health deadline plus visible per-line bootstrap logs keep the splash honest. A dead child during polling → `Failed` with stderr tail, not an infinite spinner.
+- **First-run download is slow / flaky.** Dep + model download can take many minutes; the 300 s health deadline plus visible per-line bootstrap logs keep the splash honest. A dead child during polling counts as a never-healthy start; repeated never-healthy starts → `Failed` (with the failure count; raw stderr in `backend_err.log`), not an infinite spinner.
 - **Stale/zombie sidecar from a previous run** holding `:3900` after an unclean exit → port-takeover path (§3.5) reclaims it; Clean & Retry kills it explicitly.
 - **Window closed vs app quit.** Closing the main window only hides it (sidecar keeps running, VRAM stays held until idle-unload). Only tray-Quit triggers teardown. A spec or test that assumes "close window = engine stops" is wrong.
 - **GPU OOM mid-generation.** Surfaces as a 5xx with the real message; the engine frees VRAM on the next idle sweep. Multi-job VRAM is bounded by the engine's worker pool sizing.

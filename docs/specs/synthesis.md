@@ -182,29 +182,41 @@ Pipeline (non-`raw`): broadcast mastering → preset effect chain → peak-norma
 
 ## State Machines
 
-Frontend Svelte store `synthesisStore` (in `frontend/src/lib/stores/`), driven by the typed client in `frontend/src/lib/api/`.
+Frontend Svelte store `synthesis` (`frontend/src/lib/stores/synthesis.ts`), driven by the typed client in `frontend/src/lib/api/`. The store has exactly **four** states and carries a `progress` field while a request is in flight:
+
+```ts
+type SynthState = "idle" | "submitting" | "done" | "error";
+// store value: { state, result?, error?, oom?, progress? }
+```
 
 **Synthesis request lifecycle**
 
 ```
-idle ──speak()──▶ submitting ──(model loading)──▶ waitingForModel ──▶ generating
-                       │                                   │              │
-                       │                                   └──────────────┤
-                       ▼                                                  ▼
-                     error ◀──────────(4xx/5xx/ws error)──────────── streaming/playing
-                       │                                                  │
-                       └──────────────── reset() ◀───────── done ◀────────┘
+idle ──speak()──▶ submitting ──(WAV received)──▶ done ──reset()──▶ idle
+                       │                            │
+                       └──(4xx/5xx)──▶ error ──reset()/speak()──▶ idle
+                                                                    ▲
+   (user cancels / new speak(): AbortController fires — no error)───┘
 ```
 
-- `idle` — Speak button enabled iff `text` is non-empty.
-- `submitting` — request sent; awaiting first response byte/header.
-- `waitingForModel` — surfaced from engine status (`status: "loading"`, with `sub_stage`/`progress`/`detail`); shows the model-loading pill. First-ever synthesis may sit here while weights load.
-- `generating` — model status `ready`, inference in flight on `_gpu_pool`.
-- `streaming`/`playing` — WAV bytes received (or PCM chunks over WS); audio plays / is exportable. Headers (`X-Audio-Id`, `X-Seed`, `X-Audio-Duration`, `X-Gen-Time`) populate the result card.
-- `done` — history list refreshed by re-fetching `GET /history`.
-- `error` — shows the server `detail`. On the OOM message, the UI surfaces a **Flush & retry** affordance (Flush reloads the model; the model lifecycle is described in [architecture.md](./architecture.md)).
+- `idle` — initial and post-`reset()` state. The Speak button is enabled iff `text` is non-empty.
+- `submitting` — one request is in flight (a single `AbortController` enforces one-at-a-time; a new `speak()` aborts the previous). Set with `progress: 0`. The page stays interactive because inference runs off the event loop server-side. **First-ever synthesis sits here while the model loads** (cold load + GPU inference); `progress` stays `0` during the cold model load, then climbs with the diffusion steps (see [§Progress](#progress)).
+- `done` — the WAV stream returned; `result` carries the object URL + `X-*` header metadata (`X-Audio-Id`, `X-Seed`, `X-Audio-Duration`, `X-Gen-Time`). The UI refreshes its history list by re-fetching `GET /history` (Business Rule 9).
+- `error` — shows the server `detail`. `oom` is set when the message matches the out-of-memory text, and the UI surfaces a **Flush & retry** affordance (Flush reloads the model; the model lifecycle is in [architecture.md](./architecture.md)).
+- **Cancel is not an error.** A user navigating away (or firing a new `speak()`) aborts the in-flight fetch via `AbortController`; the aborted request stays quiet and does not transition to `error`.
 
-**Engine/model status** (polled via `GET /engine/status`): `idle → loading (sub_stage: importing | loading_weights | compiling | ready) → ready`, or `error` with a message. The synthesis store gates `waitingForModel` on this.
+There is **no** separate `waitingForModel`/`generating`/`streaming`/`playing` state — model load, inference, and streaming are all observed from the single `submitting` state, with the model-load-vs-stepping distinction surfaced through the `progress` field rather than a state transition. Playback is owned by the audio player component, not this store.
+
+### Progress
+
+While the store is `submitting`, the Speak UI shows a **real %-complete bar** instead of an indeterminate spinner, driven by the per-step SSE stream `GET /generate/progress-stream` (see [ipc-contract.md §3 Synthesis](./ipc-contract.md#3-synthesis)).
+
+- **Field:** `progress` is a float `0.0–1.0` on the store value, present only while `submitting`.
+- **How it moves:** `progress` starts at `0` (set when `speak()` enters `submitting`) and **stays `0` during the cold model load** — the engine emits no step events until inference begins. It then climbs with the diffusion steps (`pct = step / num_step`), reaching `1.0` only on the terminal `done` event. The tail work (token decode + DSP + WAV encode) is not step-granular, so the engine clamps the bar just under full (`_STEP_CEILING = 0.97`) until completion.
+- **How it is wired:** the store opens the stream (`subscribeGenerationProgress`) **just before** `POST /generate` so the bar catches the `start` phase, and closes it when the request settles. The stream replays a tiny buffer on connect, which can include the *previous* generation's tail — the store ignores every event until **this** generation's `start` phase so the bar doesn't flash the old 100%.
+- **Best-effort:** if the stream can't open, generation still runs; the bar just stays at its initial "preparing" value (indeterminate). The event shape (`{phase: start|step|done|error, step, total, pct}`), the broadcaster mechanics, and the loopback-only gating are specified in [ipc-contract.md §3 Synthesis](./ipc-contract.md#3-synthesis); the engine-side per-step counter lives in the `generation_progress` service.
+
+**Engine/model status** is read separately from `GET /engine/status` (active engine + resolved device); it is not part of this request-lifecycle store.
 
 ---
 
@@ -215,7 +227,7 @@ idle ──speak()──▶ submitting ──(model loading)──▶ waitingFor
 - **No profile and no `ref_audio`** — valid: synthesizes in the model's default voice. Not an error. `profile_id` in history is `NULL`.
 - **`profile_id` not found** — silently falls back to default voice; history `profile_id` is `NULL` (no 404 for this path).
 - **Out-of-memory mid-generation** — inference aborts; the engine runs `gc.collect()` and empties the accelerator cache (CUDA), then returns `500` with the recoverable message: *"TTS engine stopped mid-generation. This usually means it ran out of memory. Try the Flush button to reload the model, then regenerate."* The UI shows Flush & retry. The GPU pool worker count is itself VRAM-aware (budgeted per job, capped at 4 on CUDA, 1 on CPU), which keeps concurrent jobs from overcommitting.
-- **Model not loaded yet** — the first `/generate` (or the first WS request) awaits `get_model()`, which loads weights under an async lock. Concurrent requests wait on the same lock rather than triggering parallel loads. The UI sits in `waitingForModel` and shows load sub-stage/progress. If weights aren't downloaded yet, this is the setup/first-run path — see [first-run-setup.md](./first-run-setup.md) for the model-download (SSE) flow; synthesis should be attempted only after `models_ready` is true.
+- **Model not loaded yet** — the first `/generate` (or the first WS request) awaits `get_model()`, which loads weights under an async lock. Concurrent requests wait on the same lock rather than triggering parallel loads. The UI stays in `submitting` with `progress == 0` (no step events arrive during the cold load) and shows the "Preparing model…" bar (see [§Progress](#progress)). If weights aren't downloaded yet, this is the setup/first-run path — see [first-run-setup.md](./first-run-setup.md) for the model-download (SSE) flow; synthesis should be attempted only after `models_ready` is true.
 - **Model load failure** — surfaced via engine status `error` with a message; `/generate` raises `500` and the UI shows the failure rather than spinning forever.
 - **Unknown `effect_preset`** — `400` with the valid-preset list; never a 500.
 - **`pedalboard` missing** — audio still returns, unprocessed (graceful degradation); no error.

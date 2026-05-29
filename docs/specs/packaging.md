@@ -2,7 +2,7 @@
 
 How Parrot is built into a **Windows MSI installer**, how the Python voice engine is shipped invisibly inside the bundle, what is bundled vs. downloaded on first run, how builds are code-signed, and how the auto-updater is wired to Parrot's own GitHub releases. Parrot is Windows-only (Windows 10/11, x64 — see [../../CLAUDE.md](../../CLAUDE.md) §Platform Scope); there are no macOS or Linux artifacts. See [../../CLAUDE.md](../../CLAUDE.md) for the project constraints this spec inherits (local-first, no telemetry).
 
-Parrot is a focused fork of OmniVoice Studio: it keeps the voice-cloning engine and strips dubbing, ASR/dictation, the gallery, batch, the multi-engine picker, and the C++ GGUF backend. The packaging surface shrinks accordingly — one engine (`omnivoice`, pure-Python via `transformers`), no C++ binary, a smaller installer.
+Parrot is an independent, Apache-2.0 open-source app — **not** a code fork of OmniVoice Studio. It reuses **only** the Apache-2.0 `omnivoice` model library for inference and reimplements its own app from these specs; OmniVoice's FSL-1.1-ALv2 app code is a design reference only, never copied (see [../LICENSING.md](../LICENSING.md)). Scoped to just clone-and-speak, it ships none of OmniVoice's other features (dubbing, ASR/dictation, the gallery, batch, the multi-engine picker, the C++ GGUF backend). The packaging surface is correspondingly small — one engine (`omnivoice`, pure-Python via `transformers`), no C++ binary, a smaller installer.
 
 ---
 

@@ -50,9 +50,9 @@
   "plugins": {
     "updater": {
       "endpoints": [
-        "https://github.com/guilhermeeng99/Parrot/releases/latest/download/latest.json"
+        "https://github.com/guilhermeeng99/parrot/releases/latest/download/latest.json"
       ],
-      "pubkey": "PLACEHOLDER_REGENERATE_BEFORE_RELEASE",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDUyOEZGREEwNzQ5REJFMDIKUldRQ3ZwMTBvUDJQVW5sZSsxNDNkcDVVU2dMRFlES3JUQXVXWi9oQ2NFM3Z4Z0hYNGFrZjJvZHgK",
       "windows": { "installMode": "passive" }
     }
   }

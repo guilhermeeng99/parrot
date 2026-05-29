@@ -12,11 +12,12 @@ import shutil
 import tempfile
 from typing import AsyncIterator
 
-from fastapi import APIRouter, File, Form, UploadFile
+from fastapi import APIRouter, Depends, File, Form, UploadFile
 from fastapi.responses import StreamingResponse
 
 from ..services import generate as generate_service
 from ..services import generation_progress
+from .deps import require_loopback
 
 router = APIRouter()
 
@@ -24,7 +25,7 @@ _CHUNK = 16384
 
 
 @router.get("/generate/progress-stream")
-async def generate_progress_stream():
+async def generate_progress_stream(_: None = Depends(require_loopback)):
     """SSE stream of the in-flight generation's per-step progress (synthesis.md
     §Progress). The Speak UI opens this just before POST /generate and renders a
     real %-complete bar from the `{phase, step, total, pct}` events. Loopback-only

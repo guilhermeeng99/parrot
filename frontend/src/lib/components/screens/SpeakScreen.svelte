@@ -3,6 +3,7 @@
   import {
     EFFECT_PRESETS,
     type GenerateParams,
+    historyAudioBytes,
     historyAudioUrl,
     inTauri,
     saveAudioDialog,
@@ -88,17 +89,21 @@
     return `parrot-${slug || id}.wav`;
   }
 
-  /** Save raw WAV bytes via the native dialog (Tauri) or an anchor (dev browser). */
-  async function saveWav(filename: string, bytes: Uint8Array, url: string) {
-    if (inTauri()) {
-      const path = await saveAudioDialog(filename, bytes);
-      if (path) toasts.success("Saved");
-    } else {
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = filename;
-      a.click();
-    }
+  /** Save a WAV via the native dialog (Tauri) or an anchor (dev browser). In
+   *  Tauri the bytes are written through the OS dialog; in a plain browser we
+   *  anchor-download the `url` directly. NOTE: the <a download> filename hint is
+   *  only honored for same-origin URLs — in `bun run dev` the sidecar is a
+   *  different origin, so the browser may name the file from the URL instead. */
+  async function saveTauriWav(filename: string, bytes: Uint8Array) {
+    const path = await saveAudioDialog(filename, bytes);
+    if (path) toasts.success("Saved");
+  }
+
+  function anchorDownload(filename: string, url: string) {
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
   }
 
   // Result download: the bytes are already in memory from the generate response.
@@ -106,20 +111,22 @@
     const r = $synthesis.result;
     if (!r) return;
     try {
-      await saveWav(downloadName(r.id, text), r.bytes, r.url);
+      const filename = downloadName(r.id, text);
+      if (inTauri()) await saveTauriWav(filename, r.bytes);
+      else anchorDownload(filename, r.url);
     } catch (e) {
       toasts.error(e instanceof Error ? e.message : String(e));
     }
   }
 
-  // History download: fetch the stored WAV by id, then save it the same way.
+  // History download: outside Tauri, anchor-download the stored WAV URL straight
+  // off the sidecar; inside Tauri, fetch the bytes via the typed client and route
+  // them through the native save dialog.
   async function downloadHistory(id: string, rowText: string) {
     try {
-      const url = await historyAudioUrl(id);
-      const bytes = inTauri()
-        ? new Uint8Array(await (await fetch(url)).arrayBuffer())
-        : new Uint8Array();
-      await saveWav(downloadName(id, rowText), bytes, url);
+      const filename = downloadName(id, rowText);
+      if (inTauri()) await saveTauriWav(filename, await historyAudioBytes(id));
+      else anchorDownload(filename, await historyAudioUrl(id));
     } catch (e) {
       toasts.error(e instanceof Error ? e.message : String(e));
     }
@@ -127,6 +134,20 @@
 
   function relTime(epoch: number): string {
     return new Date(epoch * 1000).toLocaleString();
+  }
+
+  // Resolve each row's audio URL ONCE and reuse the same promise across renders.
+  // Inlining historyAudioUrl(row.id) inside {#await} would hand a fresh promise
+  // to AudioPlayer on every list re-render, re-mounting it (and reloading the
+  // clip's metadata). Keyed by id; survives because the component instance does.
+  const audioUrlCache = new Map<string, Promise<string>>();
+  function audioUrl(id: string): Promise<string> {
+    let url = audioUrlCache.get(id);
+    if (!url) {
+      url = historyAudioUrl(id);
+      audioUrlCache.set(id, url);
+    }
+    return url;
   }
 </script>
 
@@ -189,12 +210,20 @@
 
     {#if busy}
       {@const pct = Math.round(($synthesis.progress ?? 0) * 100)}
-      <div class="flex flex-col gap-1" aria-live="polite">
+      <div class="flex flex-col gap-1">
         <div class="flex items-center justify-between text-body text-slate-blue">
-          <span>{pct > 0 ? "Generating…" : "Preparing model…"}</span>
-          <span class="font-mono">{pct}%</span>
+          <!-- Announce only the coarse phase (Preparing vs Generating), not every
+               per-step % tick — re-announcing the percent on each step is noise. -->
+          <span aria-live="polite">{pct > 0 ? "Generating…" : "Preparing model…"}</span>
+          <span class="font-mono" aria-hidden="true">{pct}%</span>
         </div>
-        <div class="h-2 w-full overflow-hidden rounded-full bg-outline-gray">
+        <div
+          class="h-2 w-full overflow-hidden rounded-full bg-outline-gray"
+          role="progressbar"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={pct}
+        >
           <div
             class="h-full rounded-full bg-action-blue transition-[width] duration-200 ease-out"
             style="width: {Math.max(pct, 3)}%"
@@ -265,7 +294,7 @@
             <span class="text-body text-slate-blue">
               {profileName(row.profile_id)} · {relTime(row.created_at)}
             </span>
-            {#await historyAudioUrl(row.id) then url}
+            {#await audioUrl(row.id) then url}
               <AudioPlayer
                 src={url}
                 downloadable

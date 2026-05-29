@@ -66,10 +66,16 @@ export async function generateSpeech(
 /** Subscribe to the in-flight generation's per-step progress (SSE). Returns an
  *  unsubscribe fn. Open it just before `generateSpeech` so the bar catches the
  *  `start` phase; close it when generation settles. `: keepalive` comment lines
- *  carry no `data:` and are ignored by EventSource. See ipc-contract.md §Generate. */
+ *  carry no `data:` and are ignored by EventSource. See ipc-contract.md §3 (Synthesis).
+ *
+ *  The returned promise only ever RESOLVES (with the unsubscribe fn) — `new
+ *  EventSource(...)` never throws on a bad/unreachable URL. Transport failures
+ *  surface as `es.onerror`, after which EventSource keeps auto-reconnecting on
+ *  its own until the caller invokes the returned unsubscribe fn to `close()` it.
+ *  So a connect failure is non-fatal here and is NOT something a caller's
+ *  surrounding try/catch can observe — the bar simply stays indeterminate. */
 export async function subscribeGenerationProgress(
   onEvent: (e: GenerationProgressEvent) => void,
-  onError?: (err: Event) => void,
 ): Promise<() => void> {
   const url = await apiUrl("/generate/progress-stream");
   const es = new EventSource(url);
@@ -80,6 +86,5 @@ export async function subscribeGenerationProgress(
       // ignore malformed payloads
     }
   };
-  if (onError) es.onerror = onError;
   return () => es.close();
 }
