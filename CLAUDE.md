@@ -70,15 +70,15 @@ parrot/
 │       ├── core/             # paths, db, schema, device-detect, crypto, logging (redaction)
 │       ├── services/         # model_manager (single get_model), tts_backend, generate, audio_dsp,
 │       │                     #   audio_io, profiles, history, hf_token, setup_manager, settings_store, errors
-│       ├── engine/           # vendored omnivoice backend adapter (import path unchanged)
+│       ├── engine/           # thin adapter over the `omnivoice` PyPI model lib (in `engine` extra)
 │       └── routers/          # health, engine, generate, profiles, history, setup, settings, ws
 ├── docs/                     # specs + roadmap (this is the source of truth — read before coding)
 └── scripts/                  # smoke test (more bootstrap/packaging helpers arrive in later phases)
 ```
 
-> The tree above is the realized Phase-2 layout. The heavy ML stack (torch/transformers/pedalboard) lives in the `engine` optional-dependency extra and is imported lazily via `model_manager.get_model()`; the default `uv sync` (and the test venv) stay light so the engine suite runs with the model boundary mocked. Production/first-run installs `uv sync --no-dev --extra engine`.
+> The tree above is the realized Phase-2 layout. The heavy ML stack (the `omnivoice` model lib + torch/transformers/pedalboard) lives in the `engine` optional-dependency extra and is imported lazily via `model_manager.get_model()`; the default `uv sync` (and the test venv) stay light so the engine suite runs with the model boundary mocked. Production/first-run installs `uv sync --no-dev --extra engine`.
 
-> Naming note: the vendored model package keeps its original `omnivoice` import path (it is the Apache-2.0 model lib — see LICENSING). Only the *app* is rebranded to Parrot. Renaming the Python package is invasive churn for zero benefit.
+> Naming note: `omnivoice` is the Apache-2.0 model lib (k2-fsa) pulled as a **PyPI dependency** in the `engine` extra — `pip install omnivoice`, imported as `from omnivoice import OmniVoice` (see LICENSING). It is *not* vendored into this repo; the only in-repo engine code is Parrot's thin adapter `app/engine/omnivoice_backend.py`, which maps the internal `synthesize(...)` contract onto omnivoice's real API. Only the *app* is rebranded to Parrot.
 
 ---
 

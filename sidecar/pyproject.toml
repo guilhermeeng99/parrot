@@ -21,19 +21,39 @@ dependencies = [
     "alembic>=1.13",             # versioned DB migrations (tested upgrade path)
 ]
 
-# The PyTorch voice engine. NOT installed by the default `uv sync` / the test
-# venv (torch is multi-GB and needs no test coverage — the model boundary is
-# mocked). Production / first-run installs this with `uv sync --no-dev --extra
-# engine` (see docs/specs/packaging.md Rule 4). The vendored Apache-2.0
-# `omnivoice` model lib keeps its original import path and is resolved at runtime
-# by model_manager; it is documented in docs/LICENSING.md and not pinned here so
-# the lockfile stays resolvable without the model repo present.
+# The voice engine. NOT installed by the default `uv sync` / the test venv (it is
+# multi-GB and needs no test coverage — the model boundary is mocked). Production /
+# first-run installs it with `uv sync --no-dev --extra engine` PLUS exactly one of
+# the `cpu`/`cu124` extras below (see docs/specs/packaging.md Rule 4). The
+# Apache-2.0 `omnivoice` model lib (https://pypi.org/project/omnivoice/, k2-fsa)
+# provides the import the engine adapter uses (`from omnivoice import OmniVoice`)
+# and is credited in docs/LICENSING.md. transformers>=5.3 matches what omnivoice
+# 0.1.x needs (the model's config.json declares transformers_version 5.3.0).
+#
+# torch/torchaudio are deliberately NOT here — omnivoice pulls them transitively,
+# and WHICH wheel (CPU vs CUDA) is decided by the `cpu`/`cu124` extras so the right
+# build lands per machine.
 [project.optional-dependencies]
 engine = [
-    "torch>=2.2",
-    "torchaudio>=2.2",
-    "transformers>=4.44",
+    "omnivoice>=0.1.5",
+    "transformers>=5.3",
     "pedalboard>=0.9",           # DSP effect presets (graceful-degrades if absent)
+]
+
+# CPU vs CUDA torch — selected at first-run by the Rust supervisor from NVIDIA-GPU
+# detection (device-detection.md): a GPU machine syncs `--extra engine --extra
+# cu124` (GPU inference), every other machine `--extra engine --extra cpu`. The two
+# are declared conflicting in [tool.uv] so they can never both be active, and
+# torch/torchaudio are pinned to PyTorch's per-variant wheel indexes (NOT PyPI,
+# whose default Windows wheel is CPU-only) via [tool.uv.sources] below. cu124 fits
+# Ada/Ampere/Turing NVIDIA GPUs with a recent driver; CPU is the safe default.
+cpu = [
+    "torch>=2.4",
+    "torchaudio>=2.4",
+]
+cu124 = [
+    "torch>=2.4",
+    "torchaudio>=2.4",
 ]
 
 # Test/dev tooling — NOT shipped in the bundle (production sync uses `uv sync --no-dev`).
@@ -50,6 +70,37 @@ dev = [
 # build/install it as a package.
 [tool.uv]
 package = false
+# `cpu` and `cu124` install the same torch/torchaudio from different wheel indexes,
+# so they are mutually exclusive — uv resolves them as separate forks and refuses
+# to enable both at once.
+conflicts = [
+    [{ extra = "cpu" }, { extra = "cu124" }],
+]
+
+# PyTorch's CPU and CUDA wheels live on dedicated indexes, not PyPI. `explicit`
+# keeps these indexes from serving anything except the packages pinned to them in
+# [tool.uv.sources], so the rest of the tree still resolves from PyPI.
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu124"
+url = "https://download.pytorch.org/whl/cu124"
+explicit = true
+
+# Steer torch/torchaudio to the CPU index under the `cpu` extra and the CUDA index
+# under `cu124`. With neither extra active they fall back to PyPI (CPU on Windows).
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cpu", extra = "cpu" },
+    { index = "pytorch-cu124", extra = "cu124" },
+]
+torchaudio = [
+    { index = "pytorch-cpu", extra = "cpu" },
+    { index = "pytorch-cu124", extra = "cu124" },
+]
 
 # Run pytest from the sidecar/ root so `import app` resolves without an install.
 [tool.pytest.ini_options]

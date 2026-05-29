@@ -1,5 +1,5 @@
-import { apiPostRaw } from "./client";
-import type { GenerateParams, GenerationResult } from "./types";
+import { apiPostRaw, apiUrl } from "./client";
+import type { GenerateParams, GenerationProgressEvent, GenerationResult } from "./types";
 
 /** The audio post-processing presets the engine accepts for `effect_preset`.
  *  Lives next to the IPC contract so the Speak UI and the server agree on the
@@ -61,4 +61,25 @@ export async function generateSpeech(
     url: URL.createObjectURL(blob),
     bytes: buf,
   };
+}
+
+/** Subscribe to the in-flight generation's per-step progress (SSE). Returns an
+ *  unsubscribe fn. Open it just before `generateSpeech` so the bar catches the
+ *  `start` phase; close it when generation settles. `: keepalive` comment lines
+ *  carry no `data:` and are ignored by EventSource. See ipc-contract.md §Generate. */
+export async function subscribeGenerationProgress(
+  onEvent: (e: GenerationProgressEvent) => void,
+  onError?: (err: Event) => void,
+): Promise<() => void> {
+  const url = await apiUrl("/generate/progress-stream");
+  const es = new EventSource(url);
+  es.onmessage = (msg) => {
+    try {
+      onEvent(JSON.parse(msg.data) as GenerationProgressEvent);
+    } catch {
+      // ignore malformed payloads
+    }
+  };
+  if (onError) es.onerror = onError;
+  return () => es.close();
 }

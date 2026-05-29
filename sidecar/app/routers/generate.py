@@ -16,10 +16,24 @@ from fastapi import APIRouter, File, Form, UploadFile
 from fastapi.responses import StreamingResponse
 
 from ..services import generate as generate_service
+from ..services import generation_progress
 
 router = APIRouter()
 
 _CHUNK = 16384
+
+
+@router.get("/generate/progress-stream")
+async def generate_progress_stream():
+    """SSE stream of the in-flight generation's per-step progress (synthesis.md
+    §Progress). The Speak UI opens this just before POST /generate and renders a
+    real %-complete bar from the `{phase, step, total, pct}` events. Loopback-only
+    like the rest of the surface; carries no audio, just progress."""
+    return StreamingResponse(
+        generation_progress.progress_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"},
+    )
 
 
 def _spool_upload(src, dst_path: str) -> None:

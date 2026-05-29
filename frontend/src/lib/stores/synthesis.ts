@@ -1,5 +1,11 @@
 import { get, writable } from "svelte/store";
-import { type GenerateParams, type GenerationResult, errMsg, generateSpeech } from "$lib/api";
+import {
+  type GenerateParams,
+  type GenerationResult,
+  errMsg,
+  generateSpeech,
+  subscribeGenerationProgress,
+} from "$lib/api";
 import { loadHistory } from "./history";
 
 // Synthesis request lifecycle (synthesis.md). While a request is in flight the
@@ -14,6 +20,9 @@ export const synthesis = writable<{
   error?: string;
   /** true when the last error was an OOM (UI offers Flush & retry). */
   oom?: boolean;
+  /** 0–1 synthesis progress while `submitting` (per-step, from the SSE stream).
+   *  Stays 0 during the cold model load, then climbs with the diffusion steps. */
+  progress?: number;
 }>({ state: "idle" });
 
 // One in-flight request at a time. We keep its controller out of the store
@@ -32,7 +41,26 @@ export async function speak(params: GenerateParams): Promise<void> {
   inFlight = controller;
 
   revokePrevious();
-  synthesis.set({ state: "submitting" });
+  synthesis.set({ state: "submitting", progress: 0 });
+
+  // Live %-complete from the engine's per-step SSE. Best-effort: if the stream
+  // can't open, generation still runs — the bar just stays at "Preparing…".
+  // The stream replays a small buffer on connect, which can include the PREVIOUS
+  // generation's tail — ignore everything until THIS generation's `start` so the
+  // bar doesn't flash to the old 100% before resetting.
+  let stopProgress: (() => void) | null = null;
+  let sawStart = false;
+  try {
+    stopProgress = await subscribeGenerationProgress((e) => {
+      if (e.phase === "start") sawStart = true;
+      if (!sawStart) return; // skip replayed events from a prior generation
+      const pct = e.phase === "done" ? 1 : e.pct;
+      synthesis.update((s) => (s.state === "submitting" ? { ...s, progress: pct } : s));
+    });
+  } catch {
+    /* no progress stream — fall through with an indeterminate bar */
+  }
+
   try {
     const result = await generateSpeech(params, controller.signal);
     if (controller.signal.aborted) {
@@ -47,6 +75,7 @@ export async function speak(params: GenerateParams): Promise<void> {
     const message = errMsg(e);
     synthesis.set({ state: "error", error: message, oom: /out of memory/i.test(message) });
   } finally {
+    stopProgress?.();
     if (inFlight === controller) inFlight = null;
   }
 }

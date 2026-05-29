@@ -16,7 +16,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 
 from ..core import device
-from . import model_manager
+from . import generation_progress, model_manager
 from .errors import ServiceError
 
 log = logging.getLogger(__name__)
@@ -68,6 +68,16 @@ async def run(params: dict) -> dict:
     model = await model_manager.get_model()
     loop = asyncio.get_running_loop()
     seed = params.get("seed")
+    num_step = int(params.get("num_step", 16) or 16)
+
+    # Real %-complete progress: the engine calls `progress_cb` once per diffusion
+    # step (omnivoice has no native hook — tts counts the model's forward passes),
+    # and we fan that out over SSE for the Speak UI's bar. begin() before the
+    # executor so a subscriber that connects first sees the start phase.
+    generation_progress.begin(num_step)
+
+    def _on_step(done: int, total: int) -> None:
+        generation_progress.report(done, total)  # publishes thread-safely
 
     def _infer():
         started = time.perf_counter()
@@ -80,7 +90,7 @@ async def run(params: dict) -> dict:
             seed=seed,
             speed=params.get("speed", 1.0),
             duration=params.get("duration"),
-            num_step=params.get("num_step", 16),
+            num_step=num_step,
             guidance_scale=params.get("guidance_scale", 2.0),
             denoise=params.get("denoise", True),
             postprocess_output=params.get("postprocess_output", True),
@@ -88,20 +98,25 @@ async def run(params: dict) -> dict:
             layer_penalty_factor=params.get("layer_penalty_factor"),
             position_temperature=params.get("position_temperature"),
             class_temperature=params.get("class_temperature"),
+            progress_cb=_on_step,
         )
         return samples, time.perf_counter() - started
 
     try:
         samples, gen_time = await loop.run_in_executor(gpu_pool(), _infer)
     except ServiceError:
+        generation_progress.fail()
         raise
     except Exception as e:
+        generation_progress.fail()
         if _looks_like_oom(e):
             log.warning("Synthesis OOM; flushing model: %s", e)
             model_manager.flush()
             raise ServiceError(500, _OOM_MESSAGE.format(e=e))
         log.exception("Synthesis failed")
         raise ServiceError(500, _GENERIC_MESSAGE.format(e=e))
+
+    generation_progress.finish()
 
     return {
         "samples": samples,

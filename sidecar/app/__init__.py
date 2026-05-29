@@ -18,7 +18,7 @@ from . import config
 from .core import db
 from .core.logging import configure_logging, redact
 from .routers import engine, generate, health, history, profiles, settings, setup, ws
-from .services import model_manager, setup_manager
+from .services import generation_progress, model_manager, setup_manager
 from .services.errors import ServiceError
 
 log = logging.getLogger(__name__)
@@ -27,7 +27,9 @@ log = logging.getLogger(__name__)
 @contextlib.asynccontextmanager
 async def _lifespan(app: FastAPI):
     db.init_db()  # idempotent schema create
-    setup_manager.bind_loop(asyncio.get_running_loop())  # SSE publish from worker threads
+    loop = asyncio.get_running_loop()
+    setup_manager.bind_loop(loop)  # model-download SSE publish from worker threads
+    generation_progress.bind_loop(loop)  # synthesis-progress SSE publish from the GPU thread
     try:
         yield
     finally:

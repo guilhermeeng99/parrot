@@ -39,22 +39,30 @@ def _get_lock() -> asyncio.Lock:
 def _load_backend():
     """Construct the real OmniVoice backend on the detected device.
 
-    Isolated so the heavy import is deferred and the failure (missing engine
-    extra / model lib) is a single, clear message. Production installs the
-    `engine` extra (`uv sync --extra engine`) and the vendored `omnivoice` lib;
-    see docs/specs/packaging.md and docs/LICENSING.md.
+    Isolated so the heavy import is deferred and a missing engine surfaces as a
+    single, clear message. Production installs the `engine` extra
+    (`uv sync --extra engine`), which carries the `omnivoice` model lib; see
+    docs/specs/packaging.md and docs/LICENSING.md.
+
+    The adapter module itself is light (it imports `torch`/`omnivoice` lazily
+    inside the backend's `__init__`), so a missing engine shows up as a
+    ModuleNotFoundError *during construction*, not on the import above — both are
+    caught here and remapped to the actionable message. Construction failures
+    that are NOT a missing module (OOM, corrupt weights) propagate unchanged so
+    tts_backend can classify them (OOM vs generic 500).
     """
     dev = device.detect_device()
     log.info("Loading OmniVoice model on device=%s", dev)
     try:
         from ..engine.omnivoice_backend import OmniVoiceBackend
-    except Exception as e:  # pragma: no cover - real-engine path, not in test venv
+
+        return OmniVoiceBackend(device=dev)
+    except ModuleNotFoundError as e:  # pragma: no cover - real-engine path, not in test venv
         raise RuntimeError(
             "Voice engine is not installed. Reinstall Parrot or run "
             "`uv sync --extra engine` in the sidecar. Underlying error: "
             f"{e}"
         ) from e
-    return OmniVoiceBackend(device=dev)
 
 
 async def get_model():

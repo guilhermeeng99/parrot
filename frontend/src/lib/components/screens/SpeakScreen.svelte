@@ -76,22 +76,52 @@
     return $profiles.profiles.find((p) => p.id === id)?.name ?? "Default voice";
   }
 
+  // A friendly, filesystem-safe default name: a slug of the spoken text + id
+  // fallback, so saved files are recognizable instead of "<uuid>.wav".
+  function downloadName(id: string, text: string): string {
+    const slug = text
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 32);
+    return `parrot-${slug || id}.wav`;
+  }
+
+  /** Save raw WAV bytes via the native dialog (Tauri) or an anchor (dev browser). */
+  async function saveWav(filename: string, bytes: Uint8Array, url: string) {
+    if (inTauri()) {
+      const path = await saveAudioDialog(filename, bytes);
+      if (path) toasts.success("Saved");
+    } else {
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.click();
+    }
+  }
+
+  // Result download: the bytes are already in memory from the generate response.
   async function download() {
     const r = $synthesis.result;
     if (!r) return;
-    const filename = `${r.id}.wav`;
-    if (inTauri()) {
-      try {
-        const path = await saveAudioDialog(filename, r.bytes);
-        if (path) toasts.success("Saved");
-      } catch (e) {
-        toasts.error(e instanceof Error ? e.message : String(e));
-      }
-    } else {
-      const a = document.createElement("a");
-      a.href = r.url;
-      a.download = filename;
-      a.click();
+    try {
+      await saveWav(downloadName(r.id, text), r.bytes, r.url);
+    } catch (e) {
+      toasts.error(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  // History download: fetch the stored WAV by id, then save it the same way.
+  async function downloadHistory(id: string, rowText: string) {
+    try {
+      const url = await historyAudioUrl(id);
+      const bytes = inTauri()
+        ? new Uint8Array(await (await fetch(url)).arrayBuffer())
+        : new Uint8Array();
+      await saveWav(downloadName(id, rowText), bytes, url);
+    } catch (e) {
+      toasts.error(e instanceof Error ? e.message : String(e));
     }
   }
 
@@ -156,6 +186,27 @@
     <Button onclick={() => speak(params())} disabled={!canSpeak || busy} loading={busy}>
       {busy ? "Generating…" : "Speak"}
     </Button>
+
+    {#if busy}
+      {@const pct = Math.round(($synthesis.progress ?? 0) * 100)}
+      <div class="flex flex-col gap-1" aria-live="polite">
+        <div class="flex items-center justify-between text-body text-slate-blue">
+          <span>{pct > 0 ? "Generating…" : "Preparing model…"}</span>
+          <span class="font-mono">{pct}%</span>
+        </div>
+        <div class="h-2 w-full overflow-hidden rounded-full bg-outline-gray">
+          <div
+            class="h-full rounded-full bg-action-blue transition-[width] duration-200 ease-out"
+            style="width: {Math.max(pct, 3)}%"
+          ></div>
+        </div>
+        <p class="text-body text-slate-blue">
+          {pct > 0
+            ? "Synthesizing on the diffusion steps — almost there."
+            : "Loading the voice model into memory (first run of the session is slower)."}
+        </p>
+      </div>
+    {/if}
   </Card>
 
   {#if $synthesis.state === "done" && $synthesis.result}
@@ -215,7 +266,11 @@
               {profileName(row.profile_id)} · {relTime(row.created_at)}
             </span>
             {#await historyAudioUrl(row.id) then url}
-              <AudioPlayer src={url} />
+              <AudioPlayer
+                src={url}
+                downloadable
+                ondownload={() => downloadHistory(row.id, row.text)}
+              />
             {/await}
           </li>
         {/each}

@@ -96,6 +96,18 @@ export interface DownloadEvent {
   rate?: number;
 }
 
+/** Phases of the synthesis-progress SSE stream (GET /generate/progress-stream). */
+export type GenerationPhase = "start" | "step" | "done" | "error";
+
+/** One synthesis-progress event. `pct` is 0.0–1.0 and stays below 1.0 until the
+ *  terminal `done` event (the tail decode/DSP work is not step-granular). */
+export interface GenerationProgressEvent {
+  phase: GenerationPhase;
+  step: number;
+  total: number;
+  pct: number; // 0.0–1.0
+}
+
 /** HF token cascade (settings.md read model). */
 export interface TokenSource {
   source: "app" | "env";

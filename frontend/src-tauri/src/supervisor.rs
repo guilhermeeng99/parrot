@@ -369,12 +369,16 @@ fn ensure_venv(app: &AppHandle, state: &SidecarState) -> bool {
     }
 
     state.set_stage(app, "installing_deps");
-    // `--no-dev`: keep pytest/httpx out of the runtime venv. `--extra engine`:
-    // pull the PyTorch ML stack the model needs (packaging Rule 4). This is the
-    // multi-minute step, so spawn it and poll — a quit must not block on it.
+    // `--no-dev`: keep pytest/httpx out of the runtime venv. `--extra engine` pulls
+    // the model lib + ML stack; `--extra {cpu|cu124}` picks the torch wheel variant
+    // from NVIDIA detection so GPU boxes get CUDA and everyone else gets the CPU
+    // wheel (device-detection.md / packaging Rule 4 + 6). This is the multi-minute
+    // step, so spawn it and poll — a quit must not block on it.
+    let torch_extra = if has_nvidia_gpu() { "cu124" } else { "cpu" };
+    state.log(app, &format!("[supervisor] engine deps: torch variant = {torch_extra}"));
     match no_window(
         Command::new("uv")
-            .args(["sync", "--no-dev", "--extra", "engine"])
+            .args(["sync", "--no-dev", "--extra", "engine", "--extra", torch_extra])
             .current_dir(&project)
             .env("UV_PROJECT_ENVIRONMENT", &venv),
     )
@@ -390,6 +394,21 @@ fn ensure_venv(app: &AppHandle, state: &SidecarState) -> bool {
     // A missing venv python now is surfaced by the spawn/health path, which
     // accounts it as a normal failure (backoff + retry) — same as the prior flow.
     true
+}
+
+/// Whether an NVIDIA GPU + driver is present, deciding which torch wheel the
+/// first-run venv installs (CUDA vs CPU). `nvidia-smi` ships with the NVIDIA
+/// driver, so a clean `-L` (list GPUs) exit means CUDA wheels are worth pulling.
+/// Any failure (binary absent, no driver, no device) → CPU-only. This only steers
+/// the wheel SET — `core/device.py` still does the authoritative `torch.cuda`
+/// probe at runtime, so a false positive degrades to CPU rather than breaking.
+fn has_nvidia_gpu() -> bool {
+    no_window(Command::new("nvidia-smi").arg("-L"))
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
 }
 
 fn spawn_sidecar(app: &AppHandle, port: u16) -> std::io::Result<Child> {

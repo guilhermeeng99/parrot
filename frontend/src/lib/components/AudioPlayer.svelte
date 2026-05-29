@@ -107,10 +107,26 @@
   {#if downloadable}
     <button
       type="button"
-      class="shrink-0 text-body font-semibold text-action-blue hover:underline"
+      class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-platinum-tint text-action-blue transition hover:border-action-blue hover:bg-action-blue/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-action-blue"
       onclick={ondownload}
-      aria-label="Download">⬇</button
+      title="Download .wav"
+      aria-label="Download audio"
     >
+      <svg
+        viewBox="0 0 20 20"
+        class="h-4 w-4"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.8"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+      >
+        <path d="M10 3v9" />
+        <path d="m6.5 8.5 3.5 3.5 3.5-3.5" />
+        <path d="M4 14.5V16a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-1.5" />
+      </svg>
+    </button>
   {/if}
 </div>
 
