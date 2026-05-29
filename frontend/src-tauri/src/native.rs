@@ -1,15 +1,13 @@
 //! Native glue exposed to the UI as Tauri commands (ipc-contract.md §11).
 //!
-//! The browser sandbox can't open save dialogs, reveal folders, play system
-//! audio, tail logs, or drive the updater — these commands do. Fallible ops
-//! return `Result<_, String>`; the `Err(String)` surfaces to JS as a rejected
-//! promise that `native.ts` wraps in an `ApiError`.
+//! The browser sandbox can't open save dialogs, reveal folders, tail logs, or
+//! drive the updater — these commands do. Fallible ops return `Result<_,
+//! String>`; the `Err(String)` surfaces to JS as a rejected promise that
+//! `native.ts` wraps in an `ApiError`.
 
 use std::fs::File;
-use std::io::{BufReader, Read};
+use std::io::Read;
 use std::path::PathBuf;
-use std::sync::mpsc::{self, Sender};
-use std::sync::{Mutex, OnceLock};
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
@@ -62,73 +60,6 @@ pub struct UpdateProgress {
     done: bool,
 }
 
-// --- audio playback (dedicated thread; rodio's OutputStream is not Send) -----
-enum AudioCmd {
-    Play(PathBuf),
-    Stop,
-}
-
-fn audio_sender() -> Option<Sender<AudioCmd>> {
-    static SENDER: OnceLock<Option<Mutex<Sender<AudioCmd>>>> = OnceLock::new();
-    SENDER
-        .get_or_init(|| {
-            let (tx, rx) = mpsc::channel::<AudioCmd>();
-            // Probe the default output device ON the audio thread (rodio's
-            // OutputStream is !Send so it can't cross back) and report success
-            // through `ready_tx` BEFORE we decide whether to keep the sender. If
-            // the probe fails we store `None`, so audio_sender() returns None and
-            // play_audio surfaces the typed "No audio output device available."
-            // error instead of Ok-but-silent (the receiver thread had exited).
-            let (ready_tx, ready_rx) = mpsc::channel::<bool>();
-            std::thread::spawn(move || audio_thread(rx, ready_tx));
-            match ready_rx.recv() {
-                Ok(true) => Some(Mutex::new(tx)),
-                _ => None, // probe failed (or thread died before reporting)
-            }
-        })
-        .as_ref()
-        .and_then(|m| m.lock().ok().map(|g| g.clone()))
-}
-
-/// The audio playback thread. Opens the default output stream, reports whether
-/// that succeeded over `ready_tx`, then serves Play/Stop commands until the
-/// sender drops. Kept off the IPC thread because `rodio::OutputStream` is not
-/// `Send` and must own its device for the stream's lifetime.
-fn audio_thread(rx: mpsc::Receiver<AudioCmd>, ready_tx: Sender<bool>) {
-    let Ok((_stream, handle)) = rodio::OutputStream::try_default() else {
-        let _ = ready_tx.send(false); // no device — caller stores None
-        return;
-    };
-    // `_stream` must stay alive for the whole loop or playback goes silent, so it
-    // stays bound at function scope (dropped only when the thread ends).
-    let _ = ready_tx.send(true);
-    let mut sink: Option<rodio::Sink> = None;
-    for cmd in rx {
-        match cmd {
-            AudioCmd::Play(path) => play_into_sink(&handle, &mut sink, &path),
-            AudioCmd::Stop => stop_sink(&mut sink),
-        }
-    }
-}
-
-/// Replace any current sink with a fresh one playing `path`. Decode/open failures
-/// are swallowed (best-effort playback); a corrupt file just doesn't play.
-fn play_into_sink(handle: &rodio::OutputStreamHandle, sink: &mut Option<rodio::Sink>, path: &PathBuf) {
-    stop_sink(sink);
-    let Ok(file) = File::open(path) else { return };
-    let Ok(src) = rodio::Decoder::new(BufReader::new(file)) else { return };
-    let Ok(new_sink) = rodio::Sink::try_new(handle) else { return };
-    new_sink.append(src);
-    *sink = Some(new_sink);
-}
-
-/// Stop + drop the current sink, if any.
-fn stop_sink(sink: &mut Option<rodio::Sink>) {
-    if let Some(s) = sink.take() {
-        s.stop();
-    }
-}
-
 #[tauri::command]
 pub fn save_audio_dialog(
     app: AppHandle,
@@ -157,21 +88,6 @@ pub fn reveal_in_folder(app: AppHandle, path: String) -> Result<(), String> {
     app.opener()
         .reveal_item_in_dir(PathBuf::from(path))
         .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub fn play_audio(path: String) -> Result<(), String> {
-    audio_sender()
-        .ok_or_else(|| "No audio output device available.".to_string())?
-        .send(AudioCmd::Play(PathBuf::from(path)))
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub fn stop_audio() {
-    if let Some(tx) = audio_sender() {
-        let _ = tx.send(AudioCmd::Stop);
-    }
 }
 
 #[tauri::command]

@@ -258,8 +258,9 @@ pub fn log_dir(app: &AppHandle) -> PathBuf {
 /// release build (`windows_subsystem = "windows"`, no console) uv's inherited
 /// stdout/stderr would vanish, leaving a failed `uv sync --extra cu124` invisible.
 /// Routing both streams to `<log_dir>/uv_bootstrap.log` makes the failure readable
-/// from Settings → Logs, the same way `spawn_sidecar` files the python child's
-/// output. Falls back to `null` if the log file can't be opened (best-effort).
+/// in the log dir (revealed via Settings → Engine → View backend log), the same way
+/// `spawn_sidecar` files the python child's output. Falls back to `null` if the log
+/// file can't be opened (best-effort).
 fn uv_log_stdio(app: &AppHandle) -> Stdio {
     let logs = log_dir(app);
     let _ = std::fs::create_dir_all(&logs);

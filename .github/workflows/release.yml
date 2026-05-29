@@ -89,7 +89,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: Bump patch version (tauri.conf.json + Cargo.toml + package.json)
+      - name: Bump patch version (tauri.conf.json + Cargo.toml + package.json + sidecar/pyproject.toml)
         id: bump
         shell: bash
         run: |
@@ -102,6 +102,9 @@ jobs:
           jq --arg v "$next" '.version = $v' frontend/src-tauri/tauri.conf.json > "$tmp"
           mv "$tmp" frontend/src-tauri/tauri.conf.json
           sed -i -E "0,/^version = \".*\"$/ s//version = \"$next\"/" frontend/src-tauri/Cargo.toml
+          # Keep the 4th manifest in lockstep (packaging.md): the sidecar's own
+          # version. First `^version = "…"` line in pyproject is [project].version.
+          sed -i -E "0,/^version = \".*\"$/ s//version = \"$next\"/" sidecar/pyproject.toml
           tmp=$(mktemp)
           jq --arg v "$next" '.version = $v' frontend/package.json > "$tmp"
           mv "$tmp" frontend/package.json
@@ -112,7 +115,7 @@ jobs:
         run: |
           set -euo pipefail
           next="${{ steps.bump.outputs.next }}"
-          git add frontend/src-tauri/tauri.conf.json frontend/src-tauri/Cargo.toml frontend/package.json
+          git add frontend/src-tauri/tauri.conf.json frontend/src-tauri/Cargo.toml frontend/package.json sidecar/pyproject.toml
           git commit -m "chore(release): v${next} [skip ci]"
           git tag "v${next}"
           git push origin HEAD:main

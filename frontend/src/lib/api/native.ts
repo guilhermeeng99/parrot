@@ -25,9 +25,6 @@ export const saveAudioDialog = (defaultName: string, wavBytes?: Uint8Array) =>
 
 export const revealInFolder = (path: string) => invoke<void>("reveal_in_folder", { path });
 
-export const playAudio = (path: string) => invoke<void>("play_audio", { path });
-export const stopAudio = () => invoke<void>("stop_audio");
-
 export const getAppPaths = () => invoke<AppPaths>("get_app_paths");
 
 export const readLogTail = (source: "backend" | "tauri", tail = 300) =>

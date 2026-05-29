@@ -141,6 +141,6 @@ Device detection touches **no database tables and no files** — it is pure runt
 |---|---|---|
 | `torch.cuda` | read | Hardware probe (`is_available()`, `mem_get_info()`); lazily imported. |
 | `os.environ` | read | `PARROT_GPU_WORKERS`, `PARROT_CPU_POOL`, `CUDA_VISIBLE_DEVICES`. |
-| Sidecar log (`parrot_data/`) | write | Worker-count, device, and arch-mismatch warnings are logged for the Settings → Logs view. |
+| Sidecar log (`parrot_data/`) | write | Worker-count, device, and arch-mismatch warnings are written to the backend log (`backend.log`), surfaced via "View backend log" in Settings → Engine. |
 | GPU `ThreadPoolExecutor` | derived | Sized once from `gpu_workers`; not persisted. |
 | CPU `ThreadPoolExecutor` | derived | Sized once at startup from `cpu_workers`; not persisted. |

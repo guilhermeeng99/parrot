@@ -38,4 +38,8 @@ Every spec follows the same shape:
 
 When requirements change, update the spec in the same change as the code. A spec that lies is worse than no spec.
 
+## Landing page
+
+A static landing page lives in [`../site/`](../site/) and auto-deploys to GitHub Pages at <https://guilhermeeng99.github.io/parrot/> on every push to `main`.
+
 See [../CLAUDE.md](../CLAUDE.md) for project conventions, the tech stack, and the post-change checklist.

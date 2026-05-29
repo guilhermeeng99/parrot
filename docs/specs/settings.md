@@ -1,6 +1,6 @@
 # Settings
 
-The minimal configuration surface for Parrot. There are exactly three groups: **Appearance** (in V1 this is a fixed, read-only statement — Parrot ships a single light theme; any prefs are frontend-local), **Engine status** (read-only — the single `omnivoice` backend plus the detected compute device), and an optional **Hugging Face token** (encrypted at rest, used solely to download the gated voice model on first run). Everything beyond these three is explicitly out of scope (see [Non-goals](#non-goals)).
+The minimal configuration surface for Parrot. There are exactly five cards: **Appearance** (in V1 this is a fixed, read-only statement — Parrot ships a single light theme; any prefs are frontend-local), **Engine status** (read-only — the single `omnivoice` backend plus the detected compute device, with a "View backend log" button that reveals `backend.log` in Explorer), **Updates** (shows the installed app version plus a check/apply-update affordance), an optional **Hugging Face token** (encrypted at rest, used solely to download the gated voice model on first run), and a Tauri-only **Data folder** card (shows the data-dir path plus an "Open data folder" button). Everything beyond these five cards is explicitly out of scope (see [Non-goals](#non-goals)).
 
 Appearance is owned by the frontend and never touches the sidecar. The HF token and engine status are owned by the Python sidecar; the UI reads them over the loopback REST surface. See [../../CLAUDE.md](../../CLAUDE.md) for project-wide conventions, [design-system.md](./design-system.md) for the visual system (the source of truth for the light theme), [ui-ux.md](./ui-ux.md) for the Settings screen's UX, [device-detection.md](./device-detection.md) for how the device string is computed, and [first-run-setup.md](./first-run-setup.md) for the model-download flow the token feeds.
 
@@ -197,7 +197,7 @@ These are present in OmniVoice's settings surface and are **deliberately removed
 - Multi-engine picker / engine-select / per-engine health-test buttons (Parrot ships one engine).
 - Performance-tuning panels (e.g. `torch.compile` toggle, idle-timeout, CPU-pool config).
 - Model store / download manager UI beyond first-run (see [first-run-setup.md](./first-run-setup.md)).
-- Logs tab / log streaming / log clearing in Settings.
+- Logs tab / log streaming / log clearing in Settings. (The one diagnostics affordance that *does* exist is the Engine-status card's "View backend log" button, which reveals `backend.log` in Explorer — there is no in-app log viewer.)
 - License-acceptance dialogs.
 - Capture / global-shortcut rebinding.
 - Any cloud, account, or telemetry settings.

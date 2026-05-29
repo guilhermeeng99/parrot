@@ -47,12 +47,12 @@ def db_path() -> Path:
     return data_dir() / "parrot.db"
 
 
-def safe_output_path(audio_path: str) -> Path | None:
-    """Resolve a stored `audio_path` to a file inside the outputs dir, rejecting
-    path traversal (synthesis.md edge case "Path traversal in history file ops").
+def _safe_path_in(root: Path, audio_path: str) -> Path | None:
+    """Resolve a stored bare filename to a file inside `root`, rejecting path
+    traversal (synthesis.md edge case "Path traversal in history file ops").
 
-    Returns `None` for any name that escapes the outputs dir (or is empty), so
-    callers ignore it rather than acting on an out-of-tree path.
+    Returns `None` for any name that escapes `root` (or is empty), so callers
+    ignore it rather than acting on an out-of-tree path.
     """
     if not audio_path:
         return None
@@ -61,23 +61,18 @@ def safe_output_path(audio_path: str) -> Path | None:
     name = os.path.basename(audio_path)
     if name != audio_path or name in ("", ".", ".."):
         return None
-    root = outputs_dir().resolve()
-    candidate = (root / name).resolve()
-    if candidate.parent != root:
+    base = root.resolve()
+    candidate = (base / name).resolve()
+    if candidate.parent != base:
         return None
     return candidate
+
+
+def safe_output_path(audio_path: str) -> Path | None:
+    """A stored output filename → a file inside the outputs dir, or None."""
+    return _safe_path_in(outputs_dir(), audio_path)
 
 
 def safe_voice_path(audio_path: str) -> Path | None:
-    """Resolve a stored profile audio filename to a file inside the voices dir,
-    rejecting path traversal. Mirrors `safe_output_path` for the voices dir."""
-    if not audio_path:
-        return None
-    name = os.path.basename(audio_path)
-    if name != audio_path or name in ("", ".", ".."):
-        return None
-    root = voices_dir().resolve()
-    candidate = (root / name).resolve()
-    if candidate.parent != root:
-        return None
-    return candidate
+    """A stored profile-audio filename → a file inside the voices dir, or None."""
+    return _safe_path_in(voices_dir(), audio_path)

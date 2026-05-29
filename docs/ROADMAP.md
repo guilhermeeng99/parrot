@@ -36,7 +36,7 @@ Prove the architecture end-to-end with a trivial payload before any ML.
 - ☑ Python sidecar stub (`sidecar/`): FastAPI `/healthz` → `{"status":"ok"}`, `/engine/status` → `{"active":"omnivoice","device":"cpu"}`. No ML.
 - ☑ `scripts/smoke-test.sh`: builds the frontend, boots the sidecar, asserts the IPC contract. **Passing.**
 
-**Exit:** verified headless — frontend builds, Rust shell + supervisor compile, the sidecar serves the contract, and the smoke test passes end to end. **Still to confirm on a real desktop session:** `bun run tauri dev` visually opening the window that reads the sidecar value (cannot be exercised in a headless environment). Placeholder app icons are copied from Toolzy — replace with Parrot branding before any release.
+**Exit:** verified headless — frontend builds, Rust shell + supervisor compile, the sidecar serves the contract, and the smoke test passes end to end. **Still to confirm on a real desktop session:** `bun run tauri dev` visually opening the window that reads the sidecar value (cannot be exercised in a headless environment). The real Parrot icon set has shipped (replacing the old Toolzy placeholders); the macOS `icon.icns` was dropped from the Windows-only bundle (`bundle.icon` lists only the PNG sizes + `icon.ico`).
 
 ---
 
@@ -74,11 +74,12 @@ Make the MVP solid on Windows 10/11 (x64) — the only supported platform ([CLAU
 - ☑ Settings: appearance (fixed light), engine status, optional HF token ([settings.md](specs/settings.md))
 - ☑ Design-system pass: the full DS primitive set + Parrot components built in Svelte 5 against the verbatim Tailwind recipes; light theme; focus rings, reduced-motion, ARIA ([design-system.md](specs/design-system.md)). Dark mode stays backlog by design.
 - ☑ Streaming synthesis (`/ws/tts`) — backend WS + typed `ttsStream.ts` client (optional path; primary stays `POST /generate`).
-- ☑ Auto-updater wired (updater plugin + `plugins.updater` config + client store, client-rendered). *(Ships with a placeholder pubkey — must regenerate a real minisign keypair before a signed release.)*
+- ☑ Auto-updater wired (updater plugin + `plugins.updater` config + client store, client-rendered). *(The real minisign keypair has been generated; the public key is committed in `tauri.conf.json` and the private key lives in CI secrets — signed releases `v0.0.2`–`v0.0.5` have shipped via the live release workflow.)*
 - ☑ Error surfaces that tell the user what to do — uniform 5-state interaction model, redacted `detail` envelopes, OOM "Flush & retry", offline/gated setup guidance, engine-starting (not error) handling.
 - ☑ README, install docs, troubleshooting ([../README.md](../README.md)).
+- ☑ Static landing page (`site/`) — auto-deploys to GitHub Pages via `.github/workflows/deploy-site.yml` on every push to `main`.
 
-**Exit:** the maintainer calls it "actually useful." Tag `v1.0.0`. **Remaining before a real `v1.0.0`:** run the model download + clone→speak on a real Windows machine (GPU/CPU), produce + code-sign the MSI, and regenerate the updater keypair — none of which are doable in a headless environment.
+**Exit:** the maintainer calls it "actually useful." Tag `v1.0.0`. **Remaining before a real `v1.0.0`:** run the model download + clone→speak on a real Windows machine (GPU/CPU) and produce + code-sign the MSI — neither of which is doable in a headless environment.
 
 ---
 

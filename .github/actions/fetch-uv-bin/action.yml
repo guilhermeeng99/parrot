@@ -13,8 +13,13 @@ runs:
         $dest = "frontend/src-tauri/binaries/uv-x86_64-pc-windows-msvc.exe"
         if (Test-Path $dest) { Write-Host "uv bin already present"; exit 0 }
         New-Item -ItemType Directory -Force -Path frontend/src-tauri/binaries | Out-Null
+        # Pin the uv version (packaging.md Rule 4 / README promise a PINNED uv.exe,
+        # not `latest`) so the bundled bootstrap binary is reproducible build-to-
+        # build and a new uv release can't silently break the first-run venv
+        # bootstrap. Bump this deliberately when adopting a new uv.
+        $uvVersion = "0.11.17"
         $zip = "$env:RUNNER_TEMP\uv.zip"
-        Invoke-WebRequest -Uri "https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-pc-windows-msvc.zip" -OutFile $zip
+        Invoke-WebRequest -Uri "https://github.com/astral-sh/uv/releases/download/$uvVersion/uv-x86_64-pc-windows-msvc.zip" -OutFile $zip
         Expand-Archive -Path $zip -DestinationPath "$env:RUNNER_TEMP\uv" -Force
         Copy-Item "$env:RUNNER_TEMP\uv\uv.exe" $dest -Force
         Write-Host "fetched uv -> $dest"

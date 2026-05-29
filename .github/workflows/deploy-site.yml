@@ -37,7 +37,7 @@ jobs:
 
       - name: Build site
         run: |
-          pnpm -C site install
+          pnpm -C site install --frozen-lockfile
           pnpm -C site build
 
       - uses: actions/configure-pages@v5

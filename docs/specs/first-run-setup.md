@@ -127,7 +127,7 @@ checking
 
 any → failed { message }    (carries reason + tail of backend stderr)
 ```
-- `failed` is recoverable: the UI offers **Retry** (re-run from `checking`) and **Clean & Retry** (wipe the bootstrapped project dir, kill any stale process on the port, then retry).
+- `failed` is recoverable: the UI offers **Retry** (re-run from `checking`) and **Reset & retry** (wipe the bootstrapped project dir, kill any stale process on the port, then retry).
 - On every non-first launch the venv already exists, so `creating_venv`/`installing_deps` are skipped and boot goes `checking → starting_backend → ready`.
 
 ### Setup-gate store (Svelte, `frontend/src/lib/stores/setup.ts`)
@@ -162,7 +162,7 @@ ready             → terminal for this launch; offline from here
 - **Disk full.** `enough_disk=false` (`< 10 GB`) is surfaced before download; the UI blocks/warns. A mid-download `ENOSPC` surfaces as `install_error` and the partial snapshot is treated as not-ready, re-gating cleanly after the user frees space and retries.
 - **Restricted-network mirror fallback.** When the user's region is `china`, the supervisor points the venv bootstrap at a PyPI mirror (`UV_DEFAULT_INDEX`) and sets `HF_ENDPOINT=https://hf-mirror.com` for the sidecar so model downloads route through the mirror. `HF_ENDPOINT` set in the environment always wins. This is region implementation, not a default-behavior change (Rule 7).
 - **Gated model needs a token.** A download against a gated repo returns 401/403/"gated"; the store moves to `needs_token`. The user supplies a token (in-app encrypted field via `POST /settings/hf-token`, **or** the `HF_TOKEN` env var), the resolver validates it via `whoami`, and the download retries. All error text is token-redacted (§2). The default engine being ungated means most users never see this path.
-- **Sidecar fails to start.** If the spawned process exits early or `/healthz` never answers within the supervisor's boot timeout, the supervisor moves to `failed { message }`, attaching the tail of the sidecar's stderr log so the user (or a bug report) has a real cause. Retry / Clean & Retry re-attempt; a stale process holding the port is killed before retrying so the supervisor doesn't "attach" to a zombie.
+- **Sidecar fails to start.** If the spawned process exits early or `/healthz` never answers within the supervisor's boot timeout, the supervisor moves to `failed { message }`, attaching the tail of the sidecar's stderr log so the user (or a bug report) has a real cause. Retry / Reset & retry re-attempt; a stale process holding the port is killed before retrying so the supervisor doesn't "attach" to a zombie.
 - **Port already owned.** If `127.0.0.1:3900` already answers as Parrot's engine (e.g. a dev sidecar), the supervisor attaches instead of spawning a duplicate. If the port is held by a non-Parrot process, it takes ownership (kills the orphan) before spawning.
 - **Token copied across machines.** An encrypted `hf_token` from another install fails to decrypt (per-install key); the resolver warns once and falls through to the `HF_TOKEN` env var. Setup is unaffected for the ungated default model.
 - **Cooldown stampede.** Rapidly retrying a just-failed repo returns `429` with a remaining-seconds hint rather than launching overlapping downloads.

@@ -7,6 +7,8 @@
     onerror,
   }: { onrecorded?: (blob: Blob) => void; onerror?: (message: string) => void } = $props();
 
+  import { formatDuration as fmt } from "$lib/format";
+
   let recording = $state(false);
   let elapsed = $state(0);
   let level = $state(0);
@@ -18,12 +20,6 @@
   let raf = 0;
   let analyser: AnalyserNode | null = null;
   let audioCtx: AudioContext | null = null;
-
-  function fmt(s: number) {
-    const m = Math.floor(s / 60);
-    const r = Math.floor(s % 60);
-    return `${m}:${r.toString().padStart(2, "0")}`;
-  }
 
   function meter() {
     if (!analyser) return;

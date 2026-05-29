@@ -89,6 +89,30 @@ def test_generate_oom_is_recoverable_500(client, monkeypatch):
     assert ok.headers["content-type"].startswith("audio/wav")
 
 
+def test_generate_non_oom_failure_is_generic_500_without_flush(client, monkeypatch):
+    """A non-OOM inference failure (e.g. a device-side assert) maps to a generic
+    recoverable 500 — it must NOT be reported as 'out of memory' and must NOT flush
+    the model (flushing is reserved for genuine OOM; tts_backend `_OOM_MARKERS`)."""
+
+    class BrokenBackend:
+        sampling_rate = 24000
+
+        def synthesize(self, text, **kw):
+            raise RuntimeError("CUDA error: device-side assert triggered")
+
+    flushed: list[bool] = []
+    real_flush = model_manager.flush
+    monkeypatch.setattr(
+        model_manager, "flush", lambda: (flushed.append(True), real_flush())[1]
+    )
+
+    model_manager._set_for_tests(BrokenBackend())
+    res = client.post("/generate", data={"text": "kaboom"})
+    assert res.status_code == 500
+    assert "out of memory" not in res.json()["detail"].lower()  # not mislabelled OOM
+    assert flushed == []  # a non-OOM error must not flush the model
+
+
 def test_generate_drives_progress_bus_start_step_done(client, monkeypatch):
     """A real POST /generate must drive the progress bus through start → step(s) →
     done (A9): the FakeBackend now calls progress_cb once per diffusion step, so

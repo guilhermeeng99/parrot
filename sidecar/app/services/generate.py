@@ -21,6 +21,22 @@ def _normalize_language_for_model(language: str | None) -> str | None:
     return language
 
 
+def _build_infer_params(params: dict, resolved: dict, text: str) -> dict:
+    """Map a validated request + resolved profile onto the model's infer kwargs.
+
+    Shared by the POST (`generate`) and WS (`generate_pcm`) paths so the
+    request→infer contract lives in exactly one place."""
+    return {
+        **params,
+        "text": text,
+        "ref_audio_path": resolved["ref_audio_path"],
+        "ref_text": resolved["ref_text"],
+        "instruct": resolved["instruct"],
+        "seed": resolved["seed"],
+        "language": _normalize_language_for_model(resolved["language"]),
+    }
+
+
 async def generate(params: dict) -> dict:
     """Run a full synthesis and persist it. `params` is the validated form data.
 
@@ -47,15 +63,7 @@ async def generate(params: dict) -> dict:
         language=request_language,
     )
 
-    infer_params = {
-        **params,
-        "text": text,
-        "ref_audio_path": resolved["ref_audio_path"],
-        "ref_text": resolved["ref_text"],
-        "instruct": resolved["instruct"],
-        "seed": resolved["seed"],
-        "language": _normalize_language_for_model(resolved["language"]),
-    }
+    infer_params = _build_infer_params(params, resolved, text)
 
     result = await tts_backend.run(infer_params)
 
@@ -123,15 +131,7 @@ async def generate_pcm(params: dict) -> dict:
         seed=params.get("seed"),
         language=params.get("language"),
     )
-    infer_params = {
-        **params,
-        "text": text,
-        "ref_audio_path": resolved["ref_audio_path"],
-        "ref_text": resolved["ref_text"],
-        "instruct": resolved["instruct"],
-        "seed": resolved["seed"],
-        "language": _normalize_language_for_model(resolved["language"]),
-    }
+    infer_params = _build_infer_params(params, resolved, text)
     result = await tts_backend.run(infer_params)
     # WS applies only broadcast mastering + -2 dBFS normalize (no effect presets).
     # DSP is numpy/pedalboard-bound, so run it off the loop to keep the socket

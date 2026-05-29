@@ -8,18 +8,15 @@ from fastapi.testclient import TestClient
 
 from app import config, create_app
 
-# /engine/status is loopback-gated — give the client a 127.0.0.1 peer.
-client = TestClient(create_app(), client=("127.0.0.1", 50000))
 
-
-def test_healthz_returns_exact_contract():
+def test_healthz_returns_exact_contract(client):
     res = client.get("/healthz")
     assert res.status_code == 200
     # The supervisor polls for exactly this body — nothing more, nothing less.
     assert res.json() == {"status": "ok"}
 
 
-def test_engine_status_shape():
+def test_engine_status_shape(client):
     res = client.get("/engine/status")
     assert res.status_code == 200
     body = res.json()
@@ -28,7 +25,9 @@ def test_engine_status_shape():
     assert body["device"] in {"cuda", "cpu"}
 
 
-def test_engine_status_rejects_non_loopback():
+def test_engine_status_rejects_non_loopback(env):
+    # Built inside the env fixture so it runs against a fresh tmp data dir, not a
+    # process-wide client created at import time (FIRST: independent/repeatable).
     remote = TestClient(create_app(), client=("10.0.0.5", 4444))
     assert remote.get("/engine/status").status_code == 403
 

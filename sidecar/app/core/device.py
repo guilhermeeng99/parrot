@@ -139,10 +139,6 @@ def gpu_workers() -> int:
     return _resolve()["gpu_workers"]
 
 
-def cpu_workers() -> int:
-    return _resolve()["cpu_workers"]
-
-
 def engine_status() -> dict:
     """The `/engine/status` payload. Never raises — on any internal error it
     reports a safe `cpu` default (device-detection.md / settings.md Rule)."""

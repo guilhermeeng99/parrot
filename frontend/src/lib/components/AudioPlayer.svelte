@@ -1,5 +1,6 @@
 <script lang="ts">
   import Spinner from "./ui/Spinner.svelte";
+  import { formatDuration as fmt } from "$lib/format";
 
   // Play / scrub / (optionally) download a short clip. Backed by native <audio>.
   // States: loading → ready(paused) ⇄ playing → ended; error on load failure.
@@ -29,13 +30,6 @@
   });
 
   const fill = $derived(duration > 0 ? (current / duration) * 100 : 0);
-
-  function fmt(s: number): string {
-    if (!isFinite(s) || s < 0) return "0:00";
-    const m = Math.floor(s / 60);
-    const r = Math.floor(s % 60);
-    return `${m}:${r.toString().padStart(2, "0")}`;
-  }
 
   async function toggle() {
     if (errored || !audio) return;

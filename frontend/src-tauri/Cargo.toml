@@ -22,8 +22,6 @@ tauri-plugin-updater = "2"         # auto-updater (client-rendered, dialog:false
 tauri-plugin-single-instance = "2" # focus the existing window on a second launch
 # Tiny blocking HTTP client for the loopback /healthz probe (no TLS needed).
 ureq = { version = "2", default-features = false }
-# Native WAV playback (play_audio / stop_audio). Windows uses WASAPI via cpal.
-rodio = { version = "0.20", default-features = false, features = ["wav", "symphonia-wav"] }
 # Command payload (de)serialization for typed returns to the UI.
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

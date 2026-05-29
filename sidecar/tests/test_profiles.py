@@ -21,6 +21,26 @@ def test_create_rejects_blank_name(client):
     assert res.status_code == 400
 
 
+def test_create_rejects_unsupported_format_415(client):
+    res = client.post(
+        "/profiles",
+        data={"name": "Bad format"},
+        files={"ref_audio": ("clip.aac", b"x", "audio/aac")},
+    )
+    assert res.status_code == 415
+    assert ".aac" in res.json()["detail"]  # names the offending extension (EDGE-5)
+
+
+def test_create_accepts_webm_recording(client):
+    # The in-app recorder emits webm (Recorder.svelte); it must NOT be 415'd.
+    res = client.post(
+        "/profiles",
+        data={"name": "From mic"},
+        files={"ref_audio": ("recording.webm", b"x", "audio/webm")},
+    )
+    assert res.status_code == 200, res.text
+
+
 def test_get_missing_is_404(client):
     res = client.get("/profiles/deadbeef")
     assert res.status_code == 404

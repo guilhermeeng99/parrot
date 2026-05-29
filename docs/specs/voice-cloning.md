@@ -139,7 +139,7 @@ Both paths produce the SAME captured artifact and the SAME save payload:
     seed       integer (optional, default null)
 ```
 
-Sending that payload to the profile-creation endpoint (full contract — fields, `200` shape, `400/415/422/500` error semantics, on-disk side effects, INSERT-failure cleanup) is documented in [voice-profiles.md](./voice-profiles.md). The error conditions the capture UI must surface are enumerated in §6 below.
+Sending that payload to the profile-creation endpoint (full contract — fields, `200` shape, `400/415/500` error semantics, on-disk side effects, INSERT-failure cleanup) is documented in [voice-profiles.md](./voice-profiles.md). Note: the create path validates the audio **extension** only (it has no decoder), so format rejection is a `415` at create; an unreadable-bytes or all-silence failure only surfaces later as a synthesis error (see EDGE-3/EDGE-5). The error conditions the capture UI must surface are enumerated in §6 below.
 
 ### Endpoints the capture flow references (all owned by voice-profiles.md)
 
@@ -205,8 +205,11 @@ EDGE-2  Too long. Samples > ~20 s are accepted but suboptimal (slower, more
         trimming is skipped — trimming would desync audio from its transcript.
         UI guidance: trim to 3–10 s of clean speech.
 
-EDGE-3  Silent / all-silence. If the sample is empty after silence removal,
-        cloning fails (the creation endpoint returns 422; see voice-profiles.md).
+EDGE-3  Silent / all-silence. The create path has no audio decoder, so it
+        cannot detect this — the clip is accepted at creation. The failure
+        only surfaces at SYNTHESIS time: when the engine decodes the reference
+        and finds it empty after silence removal, cloning fails as a synthesis
+        error (500; see synthesis.md), not a 422 from the creation endpoint.
         Surface "We couldn't hear any speech in that clip — record again with
         the mic closer, or upload a clearer sample."
 
@@ -214,10 +217,14 @@ EDGE-4  Very quiet (low RMS). Not an error: the engine scales the waveform up
         before tokenizing and remembers the original level so output loudness
         matches. Quiet-but-audible samples clone fine.
 
-EDGE-5  Unsupported / corrupt format. torchaudio is tried first, then a
-        pydub/ffmpeg fallback for formats it can't decode. If both fail to
-        decode the bytes, the creation endpoint returns 415 with the offending
-        extension named (see voice-profiles.md).
+EDGE-5  Unsupported / corrupt format. The CREATE endpoint validates the file
+        EXTENSION only — it returns 415 (with the offending extension named;
+        see voice-profiles.md) for anything outside the supported container
+        set {wav,mp3,m4a,flac,ogg,webm}. The actual decode runs later, at
+        synthesis: torchaudio is tried first, then a pydub/ffmpeg fallback for
+        formats it can't decode. If both fail to decode the bytes (e.g. a
+        corrupt file with an accepted extension), cloning fails as a synthesis
+        error (500; see synthesis.md) — create does not catch corrupt bytes.
         Note: a successful clone normalizes channels and sample rate, so the
         user never has to convert mp3/m4a/flac/ogg/webm to wav themselves.
 

@@ -211,7 +211,7 @@ transition hover:brightness-105 disabled:opacity-50
     primary: "bg-action-blue text-snow-white hover:brightness-105",
     // ghost: text-only action, no fill
     ghost: "bg-transparent text-action-blue hover:bg-pale-gray",
-    // outline: bordered neutral action on a light surface (e.g. "Clean & Retry")
+    // outline: bordered neutral action on a light surface (e.g. "Reset & retry")
     outline: "border border-platinum-tint bg-snow-white text-midnight-indigo hover:border-action-blue",
   } as const;
 </script>
@@ -223,7 +223,7 @@ transition hover:brightness-105 disabled:opacity-50
 
 - **primary** — the one CTA recipe above. Used for **Generate**, **Save**, **Download**, **Retry**.
 - **ghost** — text-only secondary action (`text-action-blue`, no fill, `hover:bg-pale-gray`). Used for cancel / tertiary actions.
-- **outline** — bordered neutral action on a light surface (`border-platinum-tint bg-snow-white text-midnight-indigo`, `hover:border-action-blue`). Used for secondary recovery actions such as the SetupGate **Clean & Retry**.
+- **outline** — bordered neutral action on a light surface (`border-platinum-tint bg-snow-white text-midnight-indigo`, `hover:border-action-blue`). Used for secondary recovery actions such as the SetupGate **Reset & retry**.
 - **size** — `md` (default, ≥40px target) or `sm` (compact, for the header **Update to vX** button). Every clickable affordance routes through this component with a `variant`/`size` — never an ad-hoc `<button>` (Business Rule 8).
 - `loading` shows the `Spinner` and sets `aria-busy`; `disabled` applies `disabled:opacity-50`. Hit target ≥40px for `md` (the `px-6 py-3` recipe satisfies this).
 
@@ -400,7 +400,7 @@ Composed strictly from the tokens and primitive recipes above. **No new colors.*
 
 ### `SetupGate.svelte` + `DownloadProgress.svelte` — first-run gate
 
-- **Anatomy:** a full-window `cloud-mist` background centering a single `Card` (`rounded-2xl shadow-sm-2`). Inside: a title (`text-heading-lg text-midnight-indigo`), a stage **stepper** (active step `text-action-blue`, done step `text-success` with check, pending `text-steel-gray`), a `ProgressBar` (`%` when the stream reports bytes, **indeterminate** otherwise), and a live log tail in `text-body text-slate-blue`. On failure: an actionable hint (`text-danger`) + **Retry** / **Clean & Retry** as `Button`s (primary + ghost). Drives off `GET /setup/status`, the `GET /setup/download-stream` SSE, and `POST /setup/download`. See [first-run-setup.md](./first-run-setup.md).
+- **Anatomy:** a full-window `cloud-mist` background centering a single `Card` (`rounded-2xl shadow-sm-2`). Inside: a title (`text-heading-lg text-midnight-indigo`), a stage **stepper** (active step `text-action-blue`, done step `text-success` with check, pending `text-steel-gray`), a `ProgressBar` (`%` when the stream reports bytes, **indeterminate** otherwise), and a live log tail in `text-body text-slate-blue`. On failure: an actionable hint (`text-danger`) + **Retry** / **Reset & retry** as `Button`s (primary + ghost). Drives off `GET /setup/status`, the `GET /setup/download-stream` SSE, and `POST /setup/download`. See [first-run-setup.md](./first-run-setup.md).
 - Tokens: `cloud-mist`/`snow-white` surfaces, `action-blue` progress + active step, `success`/`danger`/`steel-gray` status, `slate-blue` log text. No new colors.
 
 > **Out of inventory (non-goals — do not build):** engine picker, batch queue table, dub segment table, voice gallery, glossary panel, casting view, story editor, marketplace/bundle import-export, theme toggle, zoom control. These are either OmniVoice surfaces cut from Parrot or V1-backlog.
@@ -412,7 +412,7 @@ Composed strictly from the tokens and primitive recipes above. **No new colors.*
 Parrot has **five** screens. The shell renders a header/NavRail (the Clone / Speak / Settings switch, built from `ModeTabs`) + a single content region; only `SetupGate` takes over the full window.
 
 ### 1. First-Run / Setup gate
-`SetupGate` full-window takeover shown until the sidecar reports models ready. Drives off `GET /setup/status` → `{ models_ready: boolean, … }` (polled) plus the `GET /setup/download-stream` SSE progress stream (started by `POST /setup/download`). Renders `DownloadProgress` (stage stepper + `ProgressBar` + log tail). On failure: actionable hint + **Retry** / **Clean & Retry**. The app does not route to Clone/Speak until `models_ready === true` and `GET /healthz` succeeds. See [first-run-setup.md](./first-run-setup.md).
+`SetupGate` full-window takeover shown until the sidecar reports models ready. Drives off `GET /setup/status` → `{ models_ready: boolean, … }` (polled) plus the `GET /setup/download-stream` SSE progress stream (started by `POST /setup/download`). Renders `DownloadProgress` (stage stepper + `ProgressBar` + log tail). On failure: actionable hint + **Retry** / **Reset & retry**. The app does not route to Clone/Speak until `models_ready === true` and `GET /healthz` succeeds. See [first-run-setup.md](./first-run-setup.md).
 
 ### 2. Clone — *record/upload reference → save a profile*
 Capture a short reference via `Recorder` or `Dropzone`, reviewed in an `AudioPlayer`. Fields (each a `Field`): profile **name** (required), **ref_text** (optional transcript), **language** (`LanguageSelect`, default `Auto`), optional **seed**, and a **de-emphasized** `instruct` style field collapsed under an "Advanced" disclosure. **Save** → `POST /profiles` (multipart: name, ref_audio, ref_text, instruct, language, seed). Over-length reference triggers a trim hint (`Toast`). Capture-flow ownership: [voice-cloning.md](./voice-cloning.md); endpoint contract: [voice-profiles.md](./voice-profiles.md).

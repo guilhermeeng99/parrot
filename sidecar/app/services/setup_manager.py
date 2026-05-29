@@ -17,6 +17,7 @@ import time
 from pathlib import Path
 
 from .. import config
+from ..core.logging import redact
 from ..core.sse_broadcast import Broadcaster, keepalive_stream
 from .errors import ServiceError
 
@@ -174,8 +175,6 @@ def _download_worker(repo_id: str) -> None:
                 break
             except Exception as e:  # transient network/OSError → backoff + retry
                 last_error = e
-                from ..core.logging import redact
-
                 if attempt < _MAX_RETRIES:
                     _bus.publish(
                         _event(repo_id, "install_retry", attempt=attempt, error=redact(str(e)))
@@ -186,8 +185,6 @@ def _download_worker(repo_id: str) -> None:
         _bus.publish(_event(repo_id, "progress", pct=1.0))
         _bus.publish(_event(repo_id, "install_done", pct=1.0))
     except Exception as e:
-        from ..core.logging import redact
-
         _last_failure[repo_id] = time.time()
         _bus.publish(_event(repo_id, "install_error", error=redact(str(e))))
         log.warning("Model download failed for %s: %s", repo_id, redact(str(e)))

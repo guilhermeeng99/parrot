@@ -136,8 +136,6 @@ pub fn run() {
             clean_and_retry_bootstrap,
             native::save_audio_dialog,
             native::reveal_in_folder,
-            native::play_audio,
-            native::stop_audio,
             native::get_app_paths,
             native::read_log_tail,
             native::check_for_update,

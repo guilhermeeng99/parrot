@@ -16,7 +16,7 @@ Parrot runs as **three cooperating processes inside one Tauri window**. Each has
 │                                                                          │
 │   ┌──────────────────────┐        Tauri command IPC                      │
 │   │  Svelte UI (WebView)  │◄──────────────────────────────┐             │
-│   │  Bun · SvelteKit SPA  │   file dialogs, native audio,   │             │
+│   │  Bun · SvelteKit SPA  │   file dialogs, reveal files,   │             │
 │   │  TypeScript (strict)  │   tray, updater, fs glue        │             │
 │   └──────────┬───────────┘                                 ▼             │
 │              │  HTTP REST  ───────────────►   ┌────────────────────────┐  │
@@ -41,7 +41,7 @@ Parrot runs as **three cooperating processes inside one Tauri window**. Each has
 ### 1.1 — Svelte UI (the front of house)
 
 - Built with **Bun** (SvelteKit in **SPA mode**, TypeScript `strict`). Renders inside the Tauri WebView.
-- Talks to the engine over **HTTP REST** at `http://127.0.0.1:3900` and over **WebSocket** at `ws://127.0.0.1:3900/ws/tts`. It talks to the Rust shell over **Tauri commands** (native dialogs, audio playback, tray).
+- Talks to the engine over **HTTP REST** at `http://127.0.0.1:3900` and over **WebSocket** at `ws://127.0.0.1:3900/ws/tts`. It talks to the Rust shell over **Tauri commands** (native dialogs, reveal-in-folder, tray). Audio playback is the WebView's own HTML `<audio>` — not a native command.
 - **Never imports Python or torch.** It knows only the IPC contract — request/response shapes, header names, status codes. It cannot tell whether the engine is loaded, what device it runs on, or where files live except through the contract.
 - Typed IPC clients live in `frontend/src/lib/api/`. UI state lives in **Svelte stores** under `frontend/src/lib/stores/`.
 - During development, the dev server runs on **`:3901`** (`bun run dev`); the WebView loads from there. In a packaged build the UI is served as static assets from the bundle, not from `:3901`.
@@ -50,7 +50,7 @@ Parrot runs as **three cooperating processes inside one Tauri window**. Each has
 
 The Rust process. Two jobs:
 
-1. **Native desktop integration** — the window, the tray, file open/save dialogs, the auto-updater, and native audio playback / filesystem glue, all exposed to the UI as Tauri commands.
+1. **Native desktop integration** — the window, the tray, file open/save dialogs, reveal-in-folder, the auto-updater, and filesystem/path glue, all exposed to the UI as Tauri commands. (Audio *playback* is the WebView's HTML `<audio>`, not a native command — only the WAV export *save dialog* is native.)
 2. **The single most critical responsibility: owning the Python sidecar lifecycle.** The Rust shell **spawns**, **health-checks**, **restarts**, and **tears down** the Python process. This is the *only* place in the system that owns the sidecar's lifetime — the UI cannot start or stop it, and the sidecar never forks itself. See §3.
 
 > **Invariant.** Exactly one module (the backend/supervisor module in `src-tauri/`) owns the Python process handle. If you need to start, stop, or probe the sidecar, do it there — never by shelling out from the UI or from another Rust module.
@@ -75,7 +75,7 @@ Three transports, each for a distinct interaction style:
 | **HTTP REST** | UI → sidecar | Request/response: generate, profiles CRUD, history, setup status, engine status. See §4 and [ipc-contract.md](./ipc-contract.md). |
 | **WebSocket** | UI → sidecar | `ws://127.0.0.1:3900/ws/tts` — *optional* streaming synthesis (chunked PCM) for low-latency playback. This is a synthesis channel **only**, not an event bus. |
 | **SSE (HTTP)** | UI → sidecar | First-run model-download progress stream (`GET /setup/download-stream`, one-way server push). |
-| **Tauri command IPC** | UI → Rust shell | Native concerns: file dialogs, audio playback, tray, updater, and supervisor status (e.g. `bootstrap_status`). |
+| **Tauri command IPC** | UI → Rust shell | Native concerns: file dialogs, reveal-in-folder, tray, updater, and supervisor status (e.g. `bootstrap_status`). Playback is the WebView's HTML `<audio>`, not a Tauri command. |
 
 ### Port model
 
@@ -111,7 +111,7 @@ Checking
 5. **StartingBackend.** Spawn the sidecar by launching the bootstrapped venv's Python **directly** (`parrot_data/.venv/Scripts/python.exe main.py`) — *not* via `uv run` — so the immediate child process **is** Python and the supervisor can reliably terminate it on exit. (A `uv run` wrapper forks Python as a *grandchild* that `child.kill()` cannot reach on Windows, orphaning the GPU-holding engine.) The port is passed as the `PARROT_PORT` env var (and `PARROT_DATA_DIR` so the two processes agree on the data dir); `main.py` internally calls `uvicorn.run(host="127.0.0.1", port=PARROT_PORT)`. The child's stdout/stderr are **piped to log files** in the app log dir — `backend.log` and `backend_err.log` respectively (§7) — not inherited from the parent.
 6. **Poll for health** (§3.2). On success → `Ready` and the splash dismisses. On repeated crash-restart failures (or the deadline elapsing) → `Failed`. The supervisor emits a `sidecar-failed` event carrying the failure count once it gives up after `MAX_RAPID_FAILURES` (5) consecutive never-healthy starts. *(Attaching the tail of the sidecar's stderr to the failure event is a future refinement; the raw stderr is already on disk in `backend_err.log`.)*
 
-> **Supervisor state note.** The supervisor (`src-tauri/src/supervisor.rs`) implements this full lifecycle: attach-if-already-healthy (step 2), port-in-use takeover (step 3), venv bootstrap (step 4), spawn with stdout/stderr piped to log files (step 5) → `/healthz` poll → restart-with-exponential-backoff → give up + `sidecar-failed` after `MAX_RAPID_FAILURES` never-healthy starts → park in `failed` until a Retry / Clean & Retry command (§3.4) → kill-on-exit. Stages are surfaced to the splash via a `bootstrap-stage` event plus a `bootstrap-log` line stream (§3 intro, §5.1).
+> **Supervisor state note.** The supervisor (`src-tauri/src/supervisor.rs`) implements this full lifecycle: attach-if-already-healthy (step 2), port-in-use takeover (step 3), venv bootstrap (step 4), spawn with stdout/stderr piped to log files (step 5) → `/healthz` poll → restart-with-exponential-backoff → give up + `sidecar-failed` after `MAX_RAPID_FAILURES` never-healthy starts → park in `failed` until a Retry / Reset & retry command (§3.4) → kill-on-exit. Stages are surfaced to the splash via a `bootstrap-stage` event plus a `bootstrap-log` line stream (§3 intro, §5.1).
 
 ### 3.2 — `/healthz` polling
 
@@ -130,7 +130,7 @@ Checking
 ### 3.4 — Restart-on-crash with backoff
 
 - If the sidecar exits **during startup polling**, the supervisor detects the dead child (it reaps the exit status) and counts it as a never-healthy start — it does not silently spin. After `MAX_RAPID_FAILURES` (5) consecutive never-healthy starts it moves to `Failed` and emits `sidecar-failed` carrying the **failure count**. The raw stderr is already on disk in `backend_err.log` (§7); attaching its tail to the failure event is a future refinement (see §3.1).
-- Recovery is explicit and bounded: the splash exposes **Retry** and **Clean & Retry** actions (Tauri commands) that reset the state machine and re-run the spawn sequence. **Clean & Retry** additionally removes the bootstrapped `parrot_data/.venv` dir (corrupt venv) and kills any stale sidecar still holding the port before re-bootstrapping.
+- Recovery is explicit and bounded: the splash exposes **Retry** and **Reset & retry** actions (Tauri commands) that reset the state machine and re-run the spawn sequence. **Reset & retry** additionally removes the bootstrapped `parrot_data/.venv` dir (corrupt venv) and kills any stale sidecar still holding the port before re-bootstrapping.
 - Restart attempts use an **exponential backoff** between tries (a short initial delay, doubling, capped) so a hard-crashing engine doesn't hot-loop the GPU or flood the logs. A surviving-but-unhealthy sidecar is always killed before a fresh spawn so two engines never race for `:3900`.
 
 ### 3.5 — Port-in-use handling
@@ -191,11 +191,11 @@ The UI mirrors two independent lifecycles in Svelte stores; both gate what the u
 checking
   → creating_venv ──► installing_deps ──► starting_backend
   → ready            (engine healthy — leave the splash, enter the app)
-  → failed{message}  (show error + Retry / Clean & Retry actions)
+  → failed{message}  (show error + Retry / Reset & retry actions)
 ```
 
 - Transitions are **push** (the `bootstrap-stage` event drives the state; the `bootstrap-log` line stream feeds the log tail) with a **pull** backfill (`bootstrap_status` for the current stage + `get_bootstrap_logs` for the log tail on mount) so a late-mounting splash doesn't miss early stages or lines.
-- `failed → checking` is the only user-initiated transition (the `retry_bootstrap` / `clean_and_retry_bootstrap` commands behind the Retry / Clean & Retry actions).
+- `failed → checking` is the only user-initiated transition (the `retry_bootstrap` / `clean_and_retry_bootstrap` commands behind the Retry / Reset & retry actions).
 
 ### 5.2 — Model store (driven by the sidecar's model-status field)
 
@@ -216,7 +216,7 @@ ready ──(idle timeout on the engine)──► idle   (model unloaded to free
 - **Two engines racing for `:3900`.** Always kill an unhealthy squatter before spawning; never spawn a second sidecar while a healthy one is attached. Single-instance prevents a second app launch from competing.
 - **Sidecar healthy but model not loaded.** `/healthz` green (`{"status":"ok"}`) ≠ ready to synthesize. The UI must read the model-status field, not infer readiness from health.
 - **First-run download is slow / flaky.** Dep + model download can take many minutes; the 300 s health deadline plus visible per-line bootstrap logs keep the splash honest. A dead child during polling counts as a never-healthy start; repeated never-healthy starts → `Failed` (with the failure count; raw stderr in `backend_err.log`), not an infinite spinner.
-- **Stale/zombie sidecar from a previous run** holding `:3900` after an unclean exit → port-takeover path (§3.5) reclaims it; Clean & Retry kills it explicitly.
+- **Stale/zombie sidecar from a previous run** holding `:3900` after an unclean exit → port-takeover path (§3.5) reclaims it; Reset & retry kills it explicitly.
 - **Window closed vs app quit.** Closing the main window only hides it (sidecar keeps running, VRAM stays held until idle-unload). Only tray-Quit triggers teardown. A spec or test that assumes "close window = engine stops" is wrong.
 - **GPU OOM mid-generation.** Surfaces as a 5xx with the real message; the engine frees VRAM on the next idle sweep. Multi-job VRAM is bounded by the engine's worker pool sizing.
 - **Foreign loopback hosts.** The sidecar binds `127.0.0.1` only; a `0.0.0.0` bind is an explicit power-user opt-in (env var) and is never the default — it would expose an unauthenticated API to the LAN.

@@ -2,7 +2,7 @@
 
 How Parrot's design system becomes screens. [design-system.md](./design-system.md) owns the tokens and the shared component recipes (the `@theme` block, the Toolzy "Sky Blueprint on Bright Paper" palette, the Svelte UI primitives under `frontend/src/lib/components/ui/`). This spec owns the *application of* those tokens: the app shell, the five screens, the core flow that ties them together, and the interaction states every async action must render. Behavior is owned by the feature specs and linked inline; this spec never re-specifies an endpoint contract.
 
-Parrot has two jobs — **clone a voice** ([voice-cloning.md](./voice-cloning.md)) and **speak text** ([synthesis.md](./synthesis.md)) — gated behind a one-time model download ([first-run-setup.md](./first-run-setup.md)) and configured through a three-group [settings.md](./settings.md) surface. The screen set is intentionally tiny; the burden of this spec is making each screen *clear under failure*, because "a first-run that actually works, and an error that tells you what to do" is Parrot's core value ([../../CLAUDE.md](../../CLAUDE.md)).
+Parrot has two jobs — **clone a voice** ([voice-cloning.md](./voice-cloning.md)) and **speak text** ([synthesis.md](./synthesis.md)) — gated behind a one-time model download ([first-run-setup.md](./first-run-setup.md)) and configured through a five-card [settings.md](./settings.md) surface. The screen set is intentionally tiny; the burden of this spec is making each screen *clear under failure*, because "a first-run that actually works, and an error that tells you what to do" is Parrot's core value ([../../CLAUDE.md](../../CLAUDE.md)).
 
 **Scope locks (V1):** LIGHT THEME ONLY — dark mode is backlog. No UI-zoom feature — backlog. Any earlier "theme: light|dark default dark + zoom" model from `settings.md` / `design-system.md` is superseded by the Toolzy light-only system. One type family: Montserrat (token `--font-gilroy`). One action color: `action-blue`. 8px grid. The process model (three processes, loopback `:3900`, supervisor-owned sidecar lifecycle) is [architecture.md](./architecture.md).
 
@@ -19,7 +19,7 @@ The window is a single Tauri WebView ([architecture.md §1](./architecture.md)).
 │  HEADER (sticky, bg-snow-white/90 + backdrop-blur, border-b           │
 │          border-outline-gray, h-16)                                    │
 │  ┌──────────────────────── max-w-[1000px], px-6 ─────────────────────┐ │
-│  │ 🦜 Parrot  [local]      ‹Clone › Speak › Settings›       v0.3.0 / │ │
+│  │ 🦜 Parrot  [local]      ‹Clone › Speak › Settings›       v0.0.x / │ │
 │  │ (heading,bold)(Badge)        (Pill nav, ml-auto)     Update btn   │ │
 │  └────────────────────────────────────────────────────────────────┘ │
 ├──────────────────────────────────────────────────────────────────────┤
@@ -37,7 +37,7 @@ The window is a single Tauri WebView ([architecture.md §1](./architecture.md)).
   - **Logo**: `text-heading font-bold text-midnight-indigo` ("Parrot", with a small parrot glyph allowed — decorative, `aria-hidden`).
   - **Local badge**: the DS **Badge** recipe (`rounded-full bg-pale-gray px-2 py-1 text-body font-semibold text-glacier-blue`) reading **"local"** (Toolzy says "native"; Parrot's truth is *runs on your machine, offline*). Static, not a button. It reinforces the local-first promise on every screen.
   - **Nav** (`ml-auto flex gap-2`): three **Pill**s — **Clone · Speak · Settings** — using `pill(active)` from the DS. Active pill `bg-action-blue text-snow-white`; inactive `bg-pale-gray text-midnight-indigo hover:bg-platinum-tint`. This is the whole NavRail; Parrot has no sidebar.
-  - **Right slot**: when an update is available, the small update button (`rounded-lg bg-action-blue px-3 py-1.5 text-body font-semibold text-snow-white transition hover:brightness-105 disabled:opacity-50` + focusRing) reading **"Update to vX.Y.Z"**; while applying, **"Updating…"** + disabled. With no update, a quiet version label `text-body text-slate-blue` ("v0.3.0"). Update/version come from the Tauri updater (native concern, [architecture.md §1.2](./architecture.md)), not the sidecar.
+  - **Right slot**: when an update is available, the small update button (`rounded-lg bg-action-blue px-3 py-1.5 text-body font-semibold text-snow-white transition hover:brightness-105 disabled:opacity-50` + focusRing) reading **"Update to vX.Y.Z"**; while applying, **"Updating…"** + disabled. With no update, a quiet version label `text-body text-slate-blue` showing the installed version ("v0.0.x", currently v0.0.5; also surfaced in Settings → Updates, §2.5). Update/version come from the Tauri updater (native concern, [architecture.md §1.2](./architecture.md)), not the sidecar.
 
 - **Main** — `max-w-[1000px] mx-auto px-6 py-12`, on `cloud-mist` body. Each screen optionally opens with a centered header (`text-display-sm font-bold text-midnight-indigo` title + `text-body-lg text-slate-blue` description, `max-w-xl mx-auto`), then a single column of **Card**s with `gap-6`. ~40px vertical section rhythm.
 
@@ -68,7 +68,7 @@ Owner: [first-run-setup.md](./first-run-setup.md). This is the make-or-break scr
   - `installing_deps` → "Installing the engine (this is a one-time step, a few minutes)…"
   - `starting_backend` → "Waking the engine…"
 - A collapsible **"Show details"** disclosure reveals the live `bootstrap-log` tail in a `font-mono text-body` scroll panel (token-redacted per [first-run-setup.md §2](./first-run-setup.md)). Collapsed by default — friendly first, diagnostic on demand.
-- `failed{message}` → the **error layout** ([§4](#4--interaction-states-the-contract)): `danger` heading "Parrot's engine couldn't start.", the supervisor stage message in the mono panel (the `sidecar-failed` event carries a failure count, not a stderr tail; the raw sidecar stderr lives in `backend_err.log`, reachable via Settings → backend log — see [architecture.md §3.4](./architecture.md)), and two **PrimaryButton**-class actions — **Retry** and a secondary **Clean & Retry** (`rounded-lg border border-platinum-tint bg-snow-white …`, the "outline" button variant). Copy names the likely cause when known (port held, deps failed).
+- `failed{message}` → the **error layout** ([§4](#4--interaction-states-the-contract)): `danger` heading "Parrot's engine couldn't start.", the supervisor stage message in the mono panel (the `sidecar-failed` event carries a failure count, not a stderr tail; the raw sidecar stderr lives in `backend_err.log`, reachable via Settings → backend log — see [architecture.md §3.4](./architecture.md)), and two **PrimaryButton**-class actions — **Retry** and a secondary **Reset & retry** (`rounded-lg border border-platinum-tint bg-snow-white …`, the "outline" button variant). Copy names the likely cause when known (port held, deps failed).
 
 **Model-download gate (sidecar-owned, after `/healthz`).** Once health is green the UI calls `GET /setup/status`. If `models_ready=false`, the gate Card is shown and Clone/Speak stay disabled (§1.1). Layout — one centered **Card**:
 - Title `text-heading`: **"One more step — download the voice model."**
@@ -109,8 +109,10 @@ Owner: [voice-cloning.md](./voice-cloning.md). Capture a reference sample → na
 
 **Capture-specific error mapping** ([§4](#4--interaction-states-the-contract)):
 - Mic permission denied (record path, frontend-only) → **danger** inline: "Parrot can't access your microphone. Allow mic access in your OS settings — or **Upload a file instead.**" The "Upload" affordance flips the mode toggle ([voice-cloning.md EDGE-6](./voice-cloning.md)).
-- All-silence (`422`) → "We couldn't hear any speech in that clip — record again with the mic closer, or upload a clearer sample." ([voice-cloning.md EDGE-3](./voice-cloning.md)).
-- Unsupported/corrupt format (`415`) → "We couldn't read that {ext} file. Try a wav, mp3, m4a, flac, ogg, or webm." ([voice-cloning.md EDGE-5](./voice-cloning.md)). Errors keep the captured clip so the user can retry the same payload.
+- Unsupported extension (`415` at create) → "We can't use a {ext} file. Try a wav, mp3, m4a, flac, ogg, or webm." `POST /profiles` validates only the file **extension** against `{.wav,.mp3,.m4a,.flac,.ogg,.webm}` and returns `415` (naming the offending extension) for anything outside it — the recorder's `.webm` and every listed upload are accepted ([voice-cloning.md EDGE-5](./voice-cloning.md)). The light create path carries no audio decoder, so there is **no decode at save time** and **no `422` at create**.
+- All-silence / undecodable clip (allowed extension) → surfaces at **synthesis time**, not at create: a clip that's silent or that the engine can't decode produces a **synthesis error** (`500`) when you first Speak with the voice (the decoder + all-silence check live in the engine extra, loaded lazily). Maps to the Speak-specific error surface (§2.3), not a Clone create error ([voice-cloning.md EDGE-3](./voice-cloning.md)).
+
+Both create errors keep the captured clip so the user can retry the same payload.
 
 **Library Card.** The voice library ([voice-profiles.md §4.1](./voice-profiles.md)) rendered as a responsive grid of **VoiceCard**s (`flex flex-wrap gap-6`, each VoiceCard = a `rounded-2xl bg-snow-white p-6 shadow-sm-2` Card, interactive → `hover:shadow-sm`):
 - Each VoiceCard: voice name (`text-heading`), a **locked Badge** when `is_locked` ("Locked" pill, `glacier-blue` on `pale-gray`, paired with a lock glyph so it never relies on color alone), created-at in `text-body text-slate-blue`, a mini **AudioPlayer** for the profile's representative clip (`GET /profiles/{id}/audio`), and a **"Speak with this"** quick action that jumps to Speak with the profile pre-selected.
@@ -167,7 +169,7 @@ Owner: [voice-profiles.md](./voice-profiles.md). Opened from a VoiceCard. A sing
 
 ### 2.5 — Settings
 
-Owner: [settings.md](./settings.md). Three groups, each its own **Card**, in one column. Routes are loopback-gated; appearance never touches the sidecar.
+Owner: [settings.md](./settings.md). Five cards, each its own group, in one column: **Appearance**, **Engine status**, **Updates**, **Hugging Face token**, **Data folder**. Sidecar-backed routes are loopback-gated; Appearance, Updates, and Data folder never touch the sidecar (Updates and Data folder are native/Tauri concerns).
 
 - **Appearance** Card:
   - In V1 this is informational: copy "Parrot uses a single light theme. Dark mode is on the roadmap." No theme toggle, no zoom control (both backlog per scope locks, §0). The Card still exists so the group is discoverable when dark mode lands. (Appearance prefs remain frontend-local, [settings.md §2](./settings.md); V1 simply pins `theme=light` and ships no control.)
@@ -175,6 +177,8 @@ Owner: [settings.md](./settings.md). Three groups, each its own **Card**, in one
   - The **Engine status label** sources `GET /engine/status` → `{"active":"omnivoice","device":"<id>"}`. The `device` field is one of `cuda`/`cpu`. Render: a **Badge** "Engine: OmniVoice" + a device line "Running on **{device_label or device}**" mapping the device to friendly text ("NVIDIA GPU (CUDA)", "CPU — slower but works"). One fixed engine, **no picker** ([settings.md Rule 1](./settings.md)).
   - While the sidecar is still starting, a `slate-blue` "Engine starting…" placeholder with a Spinner — the rest of Settings stays interactive ([settings.md Edge Cases](./settings.md)).
   - A quiet link "View backend log" (opens the rotating `backend.log` via the native shell) — the only diagnostics affordance; there is no Logs tab ([settings.md Non-goals](./settings.md)).
+- **Updates** Card (native / Tauri-only):
+  - Shows **"Installed version v{appVersion}"** (the same version surfaced in the header right slot, §1.1) and a check/apply-update affordance: a **"Check for updates"** action that, when an update is available, reads **"Update to vX.Y.Z"** and applies it (and **"Updating…"** + disabled while applying) — the same Tauri-updater flow as the header button. With no update, a quiet "You're on the latest version." Update/version come from the Tauri updater (native concern, [architecture.md §1.2](./architecture.md)), not the sidecar.
 - **Hugging Face token** Card (optional):
   - Copy: "Only needed to download a *gated* voice model. The default Parrot voice needs no token." — keeps it honestly optional ([settings.md Rule 2](./settings.md)).
   - **Field** "Token" → a password-style text input (DS recipe, `type=password` with a show/hide toggle), helper showing the **masked** current value `hf_…{last3}` and the cascade state:
@@ -184,6 +188,8 @@ Owner: [settings.md](./settings.md). Three groups, each its own **Card**, in one
     - `source: env` → read-only chip "Set via HF_TOKEN environment variable" (power-user override; field disabled, [settings.md read model](./settings.md)).
   - **PrimaryButton** "Save token" (`POST`), a secondary **"Test now"** (forces re-validate), and a **"Clear"** (`DELETE`). The raw token is never echoed back — only `masked`.
   - Sidecar-down error ([settings.md Edge](./settings.md)): "Engine not running — can't save the token yet." + retry. Appearance is unaffected (it never calls the sidecar).
+- **Data folder** Card (native / Tauri-only):
+  - Shows the resolved data-dir path (`parrot_data/` under `%APPDATA%\Parrot\…`, [../../CLAUDE.md](../../CLAUDE.md) Data Model) in muted `font-mono text-body`, plus an **"Open data folder"** button that reveals it in Explorer via the native shell. Tauri-only — hidden when running the bare web UI (no native shell).
 
 ---
 
@@ -213,9 +219,9 @@ Every async action in Parrot renders the **same five states** with the same DS t
 
 | Action | loading | empty | success | error (+recovery) |
 |---|---|---|---|---|
-| Boot (supervisor) | stage line + Spinner / log tail | — | splash dismisses | `failed` → Retry / Clean & Retry |
+| Boot (supervisor) | stage line + Spinner / log tail | — | splash dismisses | `failed` → Retry / Reset & retry |
 | Download model | indeterminate→determinate ProgressBar | — | gate clears → Clone | offline/`install_error` → Retry (cooldown); gated → token Field |
-| Save voice | "Saving…" + Spinner | — | toast + library refresh | `415`/`422`/mic-denied → keep clip, retry / upload instead |
+| Save voice | "Saving…" + Spinner | — | toast + library refresh | `415` (bad extension) / mic-denied → keep clip, retry / upload instead (silence/undecodable surfaces later at Speak) |
 | List profiles | Spinner (first load only; refresh is silent) | "clone your first voice" | list renders | stale list kept + toast |
 | Generate (Speak) | "Generating…" button + progress bar ("Preparing model…" at 0%, then "Generating… {pct}%") | — | Result Card + history refresh | OOM → Flush & retry; `500` → view log |
 | Lock / Unlock / Rename / Delete | optimistic flip + reconcile | — | toast | rollback + toast; `404` → drop & refresh |
@@ -264,7 +270,7 @@ The path the whole app is built around — first launch to first exported clip. 
                          (fully offline; no network calls)
 ```
 
-The flow has exactly one network-dependent step (the one-time download); every step after it works offline forever ([first-run-setup.md §1](./first-run-setup.md)). A user who downloads, clones once, and speaks once has touched every core component — that round trip working cleanly *is* the v0.3.0 "actually useful" bar ([../../CLAUDE.md](../../CLAUDE.md)).
+The flow has exactly one network-dependent step (the one-time download); every step after it works offline forever ([first-run-setup.md §1](./first-run-setup.md)). A user who downloads, clones once, and speaks once has touched every core component — that round trip working cleanly *is* the "actually useful" bar for the **v1.0.0** milestone ([../ROADMAP.md](../ROADMAP.md)). Parrot today ships as 0.0.x (the installed version shows in the header and Settings → Updates, §2.5).
 
 ---
 
@@ -300,7 +306,7 @@ The DS guarantees the primitives (focus rings, contrast, hit targets); this sect
   - *Clone*: mode toggle → capture control (mic/dropzone) → captured AudioPlayer → name → ref_text → language → Save. Library grid is reachable after the form; each VoiceCard is a single tab-stop opening detail, with its quick-action as a nested stop.
   - *Speak*: TextComposer (autofocus on screen enter) → Voice → Language → Speed → Advanced disclosure → Speak. Result Card (AudioPlayer → Download → Lock) follows; History rows last.
   - *Profile detail*: name/rename → test AudioPlayer → metadata Fields → Lock/Unlock → Delete (Delete is last and requires a confirm step so it's never the accidental default).
-  - *Settings*: Appearance → Engine status → token Field → Save/Test/Clear.
+  - *Settings*: Appearance → Engine status (View backend log) → Updates (Check / apply update) → token Field → Save/Test/Clear → Data folder (Open data folder).
 - **Keyboard flows.** Enter submits the active primary action (Save voice / Speak / Save token) when its precondition holds; it does **not** trigger destructive actions. `Esc` closes the profile-detail sheet and any confirm dialog. The AudioPlayer scrubber is fully keyboard-seekable (§3). Disclosures (`Advanced`, `Show details`) are `<button aria-expanded>` toggling a region.
 - **Live regions.** The download ProgressBar uses `aria-live="polite"` on a coarse status ("Downloading — 38%", updated at intervals, not every byte). The model-loading pill and synthesis state changes announce once per transition. Error banners are `role="alert"` so a screen reader hears the actionable message immediately. Token values are never placed in any live region.
 - **Engine-down is not a dead end.** When the sidecar is unreachable, controls that need it are disabled with an explanatory label ("Engine starting…"), focus is not trapped, and Settings/Appearance remain operable — consistent with [architecture.md §4](./architecture.md) and [settings.md Edge Cases](./settings.md).

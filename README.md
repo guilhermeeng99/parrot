@@ -31,6 +31,8 @@ The clone-and-speak MVP is built end to end — engine (FastAPI sidecar), UI (Sv
 
 > Signed installers aren't published yet (pre-1.0). Build from source below. When released, Parrot ships as a single Windows **MSI**; unsigned dev builds trip SmartScreen — use **More info → Run anyway** (never disable SmartScreen globally).
 
+See the [landing page](https://guilhermeeng99.github.io/parrot/) for an overview.
+
 ## Build from source
 
 Prerequisites: [Bun](https://bun.sh), [Rust](https://rustup.rs) (+ the [Tauri Windows prerequisites](https://tauri.app/start/prerequisites/): MSVC build tools, WebView2), [uv](https://docs.astral.sh/uv/).
@@ -47,7 +49,7 @@ bun run tauri dev          # dev: Svelte UI + Rust shell + Python sidecar
 bun run tauri build        # bundle the Windows MSI (needs WiX; emits Parrot_<ver>_x64_en-US.msi)
 ```
 
-The first launch bootstraps a Python venv and downloads the voice model (~hundreds of MB) once, then works offline forever. Before a signed release, regenerate the updater key (`plugins.updater.pubkey` in `frontend/src-tauri/tauri.conf.json` is a placeholder) and drop a pinned `uv.exe` at `frontend/src-tauri/binaries/uv-x86_64-pc-windows-msvc.exe`.
+The first launch bootstraps a Python venv and downloads the voice model (~hundreds of MB) once, then works offline forever. The updater key is already set up — the real minisign keypair has been generated; the public key (`plugins.updater.pubkey` in `frontend/src-tauri/tauri.conf.json`) is committed and the private key lives in CI secrets. For a local dev build, drop a pinned `uv.exe` at `frontend/src-tauri/binaries/uv-x86_64-pc-windows-msvc.exe` (the binary is gitignored; CI fetches a pinned `uv` automatically).
 
 ## Develop & test
 
@@ -75,7 +77,7 @@ bash scripts/smoke-test.sh
 - **Running on CPU / slow generation.** Parrot auto-detects CUDA; with no NVIDIA GPU (or stale CUDA drivers) it falls back to CPU — fully functional, just slower. Settings → Engine shows the active device.
 - **"The engine ran out of memory."** Use **Flush & retry** on the Speak screen (reloads the model), or shorten the text. The GPU worker pool is VRAM-budgeted to limit this.
 - **Antivirus flags the sidecar.** Parrot spawns a local Python process bound to `127.0.0.1:3900` only (never the network). Allowlist the app's data folder (Settings → Data folder) and the loopback port if needed; a signed release reduces these warnings.
-- **Engine won't start.** Settings → Engine → **View backend log**, or the boot splash's **Retry** / **Clean & Retry** (the latter wipes the bootstrapped venv and reclaims the port).
+- **Engine won't start.** Settings → Engine → **View backend log**, or the boot splash's **Retry** / **Reset & retry** (the latter wipes the bootstrapped venv and reclaims the port).
 - **Where's my data?** Voices, generated audio, the SQLite DB, settings, and the bootstrapped venv live under `%APPDATA%\Parrot\parrot_data` (Settings → Data folder opens it). It survives upgrades.
 
 ## How it works

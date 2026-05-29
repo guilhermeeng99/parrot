@@ -44,12 +44,12 @@ Parrot is **three cooperating processes** inside one desktop window. This is the
 │   Tauri shell (Rust)  ──────supervise───────┘ health / kill   │
 │        - window, tray, file dialogs, updater                  │
 │        - spawns + supervises the Python sidecar               │
-│        - native glue (audio playback, fs, paths)              │
+│        - native glue (dialog, reveal, fs, paths)              │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 - **Svelte + Bun** — the UI. Talks to the sidecar over `http://127.0.0.1:<port>` (REST) and `ws://127.0.0.1:<port>/ws/tts` (streaming synthesis). Never imports Python or torch; it only knows the IPC contract.
-- **Rust (Tauri shell)** — the native host. Owns the window/tray/dialogs/updater, and is responsible for **spawning, health-checking, and tearing down** the Python sidecar. Native glue (audio playback, filesystem, path resolution) lives here as Tauri commands.
+- **Rust (Tauri shell)** — the native host. Owns the window/tray/dialogs/updater, and is responsible for **spawning, health-checking, and tearing down** the Python sidecar. Native glue (file dialogs, reveal-in-folder, filesystem, path resolution) lives here as Tauri commands. Audio *playback* is the webview's own HTML `<audio>`, not a native command — only the WAV-export save dialog is native.
 - **Python FastAPI sidecar** — the voice engine. Wraps the OmniVoice model (PyTorch + transformers). Loads weights, runs inference, owns the SQLite DB and the on-disk voice/audio files. This is the only process that needs a GPU.
 
 The engine is Python because the model is PyTorch — there is no pure-Rust path without reimplementing the model. The sidecar is shipped invisibly inside the bundle (see [docs/specs/packaging.md](docs/specs/packaging.md)); the user never sees Python.
@@ -73,7 +73,9 @@ parrot/
 │       ├── engine/           # thin adapter over the `omnivoice` PyPI model lib (in `engine` extra)
 │       └── routers/          # health, engine, generate, profiles, history, setup, settings, ws
 ├── docs/                     # specs + roadmap (this is the source of truth — read before coding)
-└── scripts/                  # smoke test (more bootstrap/packaging helpers arrive in later phases)
+├── scripts/                  # smoke test (more bootstrap/packaging helpers arrive in later phases)
+└── site/                     # static landing page (Vite, pnpm) — auto-deploys to GitHub Pages
+                              #   via .github/workflows/deploy-site.yml on push to main
 ```
 
 > The tree above is the realized Phase-2 layout. The heavy ML stack (the `omnivoice` model lib + torch/transformers/pedalboard) lives in the `engine` optional-dependency extra and is imported lazily via `model_manager.get_model()`; the default `uv sync` (and the test venv) stay light so the engine suite runs with the model boundary mocked. Production/first-run installs `uv sync --no-dev --extra engine`.
@@ -96,7 +98,7 @@ parrot/
 | **Python env** | uv | Bootstraps the venv; shipped as a Tauri `externalBin` sidecar |
 | **Storage** | SQLite (WAL) + on-disk audio | `voice_profiles`, `generation_history`, `settings` |
 | **Migrations** | alembic + idempotent `CREATE TABLE IF NOT EXISTS` | Tested upgrade path; never break existing user data |
-| **Audio I/O** | torchaudio / soundfile (Python), Web Audio + Rust playback (frontend) | 24 kHz model output |
+| **Audio I/O** | torchaudio / soundfile (Python), HTML `<audio>` playback (frontend) | 24 kHz model output |
 
 ---
 

@@ -1,6 +1,6 @@
 # IPC Contract
 
-The single source of truth for the **frontend ↔ sidecar** boundary in Parrot. The Svelte UI never imports Python or torch; it only knows the shapes on this page. The Tauri (Rust) shell owns the Python process lifecycle and exposes native glue (dialogs, fs, playback, updater) as Tauri commands. Everything the UI does crosses one of two boundaries documented here:
+The single source of truth for the **frontend ↔ sidecar** boundary in Parrot. The Svelte UI never imports Python or torch; it only knows the shapes on this page. The Tauri (Rust) shell owns the Python process lifecycle and exposes native glue (dialogs, fs/reveal, updater) as Tauri commands. Everything the UI does crosses one of two boundaries documented here:
 
 1. **HTTP / WebSocket** to the Python FastAPI sidecar at `http://127.0.0.1:3900` (REST + SSE) and `ws://127.0.0.1:3900/ws/tts` (streaming synthesis). The frontend dev server runs on `http://localhost:3901` (dev only; absent in packaged builds); in a packaged build the webview talks to the sidecar directly on `127.0.0.1:3900`.
 2. **Tauri `invoke()`** to Rust commands for native operations the browser sandbox can't perform.
@@ -372,6 +372,8 @@ interface WsTtsRequest {
   speed?: number;                              // default 1.0
   instruct?: string;
   seed?: number;                               // deterministic seed; falls back to the profile's stored seed
+  num_step?: number;                           // diffusion steps (advanced; server default 16)
+  guidance_scale?: number;                     // CFG scale (advanced; server default 2.0)
 }
 ```
 
@@ -399,16 +401,14 @@ Rules:
 
 ## 11. Tauri (Rust) commands — native glue
 
-The browser sandbox can't open files, reveal folders, or play system audio. The Svelte UI calls these via `@tauri-apps/api/core`'s `invoke()`; clients live in `frontend/src/lib/api/native.ts`. Names below are the Parrot command set. The sidecar's *lifecycle* (spawn / health-check / teardown) is owned solely by the supervisor module and is **not** UI-callable; the UI may **observe** boot state and **request a retry** through the read-only/recovery commands in §11.1 (see [architecture.md](./architecture.md) §3, §5.1).
+The browser sandbox can't open files or reveal folders. The Svelte UI calls these via `@tauri-apps/api/core`'s `invoke()`; clients live in `frontend/src/lib/api/native.ts`. Names below are the Parrot command set. The sidecar's *lifecycle* (spawn / health-check / teardown) is owned solely by the supervisor module and is **not** UI-callable; the UI may **observe** boot state and **request a retry** through the read-only/recovery commands in §11.1 (see [architecture.md](./architecture.md) §3, §5.1).
 
 | `invoke()` name | Args | Returns | Purpose |
 |-----------------|------|---------|---------|
 | `save_audio_dialog` | `{ defaultName: string, wavBytes?: number[] }` | `string \| null` (chosen path, or null if cancelled) | Native "Save As" dialog to export a generated WAV. |
 | `reveal_in_folder` | `{ path: string }` | `void` | Reveal a file in Windows Explorer. |
-| `play_audio` | `{ path: string }` | `Result<(), string>` | Play a WAV through the OS audio device. |
-| `stop_audio` | — | `void` | Stop current native playback. |
 | `get_app_paths` | — | `{ dataDir, outputsDir, voicesDir, dbPath, logPath }` | Resolve `parrot_data/` locations for the UI (e.g. "open data folder"). |
-| `read_log_tail` | `{ source: "backend" \| "tauri", tail?: number }` | `{ lines: string[], path, exists, total_lines }` | Tail a log for the Settings → Logs panel (`tail` clamped 10–2000, default 300). `"backend"` reads `backend.log` (sidecar stdout). `"tauri"` targets `parrot.log`, which is **not yet written** — no Tauri logging plugin is registered, so that source returns `exists: false` until logging is wired (see [architecture.md](./architecture.md) §7). |
+| `read_log_tail` | `{ source: "backend" \| "tauri", tail?: number }` | `{ lines: string[], path, exists, total_lines }` | Tail a log (`tail` clamped 10–2000, default 300). Implemented + tested for **future use**: the current Settings UI surfaces the backend log by revealing `backend.log` in Explorer (via `reveal_in_folder`), not by calling this. `"backend"` reads `backend.log` (sidecar stdout). `"tauri"` targets `parrot.log`, which is **not yet written** — no Tauri logging plugin is registered, so that source returns `exists: false` until logging is wired (see [architecture.md](./architecture.md) §7). |
 | `check_for_update` | — | `{ available: boolean, version?: string, notes?: string }` | Query the Tauri updater. |
 | `install_update` | — | `Result<(), string>` | Download + apply the pending update, then relaunch. |
 | `quit_app` | — | `void` | Set the quitting flag and exit (tears down the sidecar). |
@@ -416,7 +416,7 @@ The browser sandbox can't open files, reveal folders, or play system audio. The 
 Conventions:
 
 - Rust commands return `Result<T, String>` for fallible operations; the `Err(String)` surfaces to JS as a thrown promise rejection. The `native.ts` client wraps these in `ApiError` (with `status` unset) so the toast layer is uniform with HTTP errors.
-- Paths returned to the UI are absolute, native Windows strings. The UI treats them as opaque (passes them straight back to `reveal_in_folder` / `play_audio`).
+- Paths returned to the UI are absolute, native Windows strings. The UI treats them as opaque (passes them straight back to `reveal_in_folder`).
 - `install_update` streams download progress via an **`update-progress`** Tauri event (subscribe with `@tauri-apps/api/event`'s `listen`; `native.ts` exposes `onUpdateProgress(handler)`). Payload `{ downloaded: number, total: number | null, done: boolean }` — `downloaded`/`total` are bytes (`total` is `null` when the server sent no content-length), and `done` is `true` on the terminal frame. The updater store renders a download readout from it.
 - **Spawn / health-check / teardown of the Python sidecar is intentionally NOT UI-callable** — only the supervisor module owns the sidecar lifecycle, and the UI can never start, stop, or restart the *process*. What the UI *can* do is **observe** boot state and **request a recovery retry**, through the read-only/recovery command group in §11.1. (The UI also observes engine liveness via `/healthz` over HTTP, never by spawning.)
 
@@ -432,7 +432,7 @@ The boot splash drives the bootstrap store (architecture.md §5.1) off these. Th
 | `bootstrap_status` | — | `string` | Current boot stage (`checking` → `creating_venv` → `installing_deps` → `starting_backend` → `ready` \| `failed`). Pull counterpart to the `bootstrap-stage` event. |
 | `get_bootstrap_logs` | — | `string[]` | The boot-log tail (backfill for a late-mounting splash that missed early `bootstrap-log` lines). |
 | `retry_bootstrap` | — | `void` | Reset a `failed` boot and re-run the spawn sequence (Retry action). |
-| `clean_and_retry_bootstrap` | — | `void` | Like Retry, but first wipe the bootstrapped venv + kill any stale sidecar on the port (Clean & Retry action). |
+| `clean_and_retry_bootstrap` | — | `void` | Like Retry, but first wipe the bootstrapped venv + kill any stale sidecar on the port (Reset & retry action). |
 
 **Tauri events** (supervisor → UI; subscribe via `@tauri-apps/api/event`'s `listen`):
 
@@ -443,7 +443,7 @@ The boot splash drives the bootstrap store (architecture.md §5.1) off these. Th
 | `sidecar-ready` | `number` (the port) | The first time `/healthz` answers (attach or spawn). |
 | `sidecar-failed` | `number` (failure count) | The supervisor gives up after `MAX_RAPID_FAILURES` never-healthy starts. |
 
-> **Parrot trim of native commands:** OmniVoice's dictation-shortcut (`get/set_dictation_shortcut`), tray-recording (`set_tray_recording`), pill-autostart (`enable/disable/is_pill_autostart_enabled`), `simulate_paste`, launch-as-widget, and `hf_cache_scan` commands are dropped — they belong to dictation / pill / gallery features that Parrot doesn't ship. `read_log_tail`, `quit_app`, and the dialog/playback/updater glue remain.
+> **Parrot trim of native commands:** OmniVoice's dictation-shortcut (`get/set_dictation_shortcut`), tray-recording (`set_tray_recording`), pill-autostart (`enable/disable/is_pill_autostart_enabled`), `simulate_paste`, launch-as-widget, and `hf_cache_scan` commands are dropped — they belong to dictation / pill / gallery features that Parrot doesn't ship. `read_log_tail`, `quit_app`, and the dialog/reveal/updater glue remain. (Parrot's earlier `play_audio`/`stop_audio` native commands were also dropped — playback is the WebView's HTML `<audio>`.)
 
 ---
 

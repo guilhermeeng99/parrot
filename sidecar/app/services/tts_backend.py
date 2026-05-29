@@ -47,8 +47,8 @@ _OOM_MESSAGE = (
     "Try the Flush button to reload the model, then regenerate. Underlying error: {e}"
 )
 _GENERIC_MESSAGE = (
-    "Couldn't synthesize audio. See Settings → Logs → Backend for the full trace. "
-    "Underlying error: {e}"
+    "Couldn't synthesize audio. See Settings → Engine → View backend log for the "
+    "full trace. Underlying error: {e}"
 )
 
 

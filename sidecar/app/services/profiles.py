@@ -18,6 +18,13 @@ log = logging.getLogger(__name__)
 
 _NOT_FOUND = "That voice profile doesn't exist. It may have been deleted from another tab."
 
+# Reference-audio containers the capture UI offers (voice-cloning.md §4 / EDGE-5).
+# The actual decode happens later in the engine (torchaudio + an ffmpeg fallback),
+# which the light create path does not load — so create only rejects an obviously
+# unsupported *extension* here, letting a wrong file fail fast at upload instead of
+# as an opaque 500 at synthesis. Decodability + silence are validated at synthesis.
+_SUPPORTED_AUDIO_EXTS = {".wav", ".mp3", ".m4a", ".flac", ".ogg", ".webm"}
+
 
 def _row_to_dict(row) -> dict:
     return {
@@ -72,8 +79,16 @@ def create_profile(
     if not name:
         raise ServiceError(400, "A voice profile needs a name.")
 
-    profile_id = new_id()
+    # A missing filename defaults to .wav (BR-2) — recorded clips always carry one.
     ext = os.path.splitext(original_filename or "")[1].lower() or ".wav"
+    if ext not in _SUPPORTED_AUDIO_EXTS:
+        raise ServiceError(
+            415,
+            f"Unsupported audio format '{ext}'. Use one of: "
+            f"{', '.join(sorted(_SUPPORTED_AUDIO_EXTS))}.",
+        )
+
+    profile_id = new_id()
     filename = f"{profile_id}{ext}"
     dest = paths.voices_dir() / filename
     dest.write_bytes(audio_bytes)
