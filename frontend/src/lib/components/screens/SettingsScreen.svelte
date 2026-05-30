@@ -79,23 +79,23 @@
 
 <section class="flex flex-col gap-6">
   <header class="mx-auto max-w-xl text-center">
-    <h1 class="text-display-sm font-bold text-midnight-indigo">Settings</h1>
+    <h1 class="text-display-sm font-display font-bold tracking-tight text-cloud-whisper">Settings</h1>
   </header>
 
   <Card>
-    <h2 class="text-heading font-bold text-midnight-indigo">Engine</h2>
+    <h2 class="text-heading font-display font-bold tracking-tight text-cloud-whisper">Engine</h2>
     {#if $device.state === "resolving" || $device.state === "unknown"}
-      <div class="flex items-center gap-2 text-slate-blue">
+      <div class="flex items-center gap-2 text-ash-gray">
         <Spinner size="sm" /> <span>Engine starting…</span>
       </div>
     {:else}
       <div class="flex items-center gap-2">
         <Badge>Engine: OmniVoice</Badge>
       </div>
-      <p class="text-body-lg text-midnight-indigo">
+      <p class="text-body-lg text-cloud-whisper">
         Running on <strong>{$device.label ?? $device.device}</strong>
         {#if $device.device === "cpu"}
-          <span class="text-body text-slate-blue"> — slower but works.</span>
+          <span class="text-body text-ash-gray"> — slower but works.</span>
         {/if}
       </p>
     {/if}
@@ -105,8 +105,8 @@
   </Card>
 
   <Card>
-    <h2 class="text-heading font-bold text-midnight-indigo">Hugging Face token</h2>
-    <p class="text-body-lg text-slate-blue">
+    <h2 class="text-heading font-display font-bold tracking-tight text-cloud-whisper">Hugging Face token</h2>
+    <p class="text-body-lg text-ash-gray">
       Only needed to download a <em>gated</em> voice model. The default Parrot voice needs no token.
     </p>
     {#if envSource?.set}
@@ -118,9 +118,9 @@
       {:else}
         <p class="text-body text-danger">Token saved but not valid — it may be expired or mistyped.</p>
       {/if}
-      <p class="font-mono text-body text-slate-blue">{appSource.masked}</p>
+      <p class="font-mono text-body text-ash-gray">{appSource.masked}</p>
     {:else}
-      <p class="text-body text-slate-blue">No token — gated downloads are disabled.</p>
+      <p class="text-body text-ash-gray">No token — gated downloads are disabled.</p>
     {/if}
     <Field label="Token">
       <TextInput type="password" bind:value={tokenInput} placeholder="hf_…" />
@@ -134,8 +134,8 @@
 
   {#if inTauri() && paths}
     <Card>
-      <h2 class="text-heading font-bold text-midnight-indigo">Data folder</h2>
-      <p class="font-mono text-body text-slate-blue">{paths.dataDir}</p>
+      <h2 class="text-heading font-display font-bold tracking-tight text-cloud-whisper">Data folder</h2>
+      <p class="font-mono text-body text-ash-gray">{paths.dataDir}</p>
       <Button size="sm" variant="ghost" onclick={() => revealInFolder(paths!.dataDir)}>
         Open data folder
       </Button>

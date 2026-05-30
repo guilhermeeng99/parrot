@@ -34,17 +34,17 @@
   }
 </script>
 
-<main class="flex min-h-screen flex-col items-center justify-center bg-cloud-mist px-6">
+<main class="flex min-h-screen flex-col items-center justify-center bg-deep-space px-6">
   <Card class="w-full max-w-md">
     <header class="flex items-center gap-3">
       <span class="text-heading-lg" aria-hidden="true">🦜</span>
-      <h1 class="text-heading-lg font-bold text-midnight-indigo">Parrot</h1>
+      <h1 class="text-heading-lg font-display font-bold tracking-tight text-cloud-whisper">Parrot</h1>
     </header>
 
     {#if $setup.state === "checking"}
-      <p class="text-body-lg text-slate-blue">Checking your setup…</p>
+      <p class="text-body-lg text-ash-gray">Checking your setup…</p>
     {:else if $setup.state === "downloading" || $setup.state === "verifying"}
-      <h2 class="text-heading font-bold text-midnight-indigo">Downloading the voice model…</h2>
+      <h2 class="text-heading font-display font-bold tracking-tight text-cloud-whisper">Downloading the voice model…</h2>
       <DownloadProgress
         state={$setup.state}
         pct={$setup.pct}
@@ -52,8 +52,8 @@
         attempt={$setup.attempt}
       />
     {:else if $setup.state === "needs_token"}
-      <h2 class="text-heading font-bold text-midnight-indigo">This model is gated</h2>
-      <p class="text-body-lg text-slate-blue">
+      <h2 class="text-heading font-display font-bold tracking-tight text-cloud-whisper">This model is gated</h2>
+      <p class="text-body-lg text-ash-gray">
         Paste a Hugging Face token to continue. Most users never need this.
       </p>
       <Field label="Hugging Face token">
@@ -63,22 +63,22 @@
         Save token & continue
       </Button>
     {:else if $setup.state === "download_failed"}
-      <h2 class="text-heading font-bold text-danger">Couldn't download the model.</h2>
-      <p class="text-body text-slate-blue">
+      <h2 class="text-heading font-display font-bold tracking-tight text-danger">Couldn't download the model.</h2>
+      <p class="text-body text-ash-gray">
         {$setup.message ??
           "Check your connection, VPN, or firewall (needs huggingface.co:443), then retry."}
       </p>
       <Button onclick={startDownload}>Retry</Button>
     {:else if $setup.state === "needs_download"}
-      <h2 class="text-heading font-bold text-midnight-indigo">
+      <h2 class="text-heading font-display font-bold tracking-tight text-cloud-whisper">
         One more step — download the voice model.
       </h2>
-      <p class="text-body-lg text-slate-blue">
+      <p class="text-body-lg text-ash-gray">
         Parrot needs to download its voice engine once (a few hundred MB). After this, everything
         runs offline — no account, no internet.
       </p>
       {#if $setup.status}
-        <p class="font-mono text-body text-slate-blue">{$setup.status.hf_cache_dir}</p>
+        <p class="font-mono text-body text-ash-gray">{$setup.status.hf_cache_dir}</p>
         {#if !$setup.status.enough_disk}
           <p class="text-body text-danger">
             Only {$setup.status.disk_free_gb} GB free — Parrot needs at least

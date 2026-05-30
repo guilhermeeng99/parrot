@@ -2,7 +2,8 @@
   import type { Snippet } from "svelte";
   import { focusRing } from "./focusRing";
 
-  // Mode/nav pill. Active = action-blue fill; inactive = pale-gray.
+  // Mode/nav pill. Active = Button Yellow fill (Night Sky text); inactive = a
+  // quiet Slate Fill chip that warms toward yellow text on hover. Pill-shaped.
   let {
     active = false,
     disabled = false,
@@ -17,13 +18,13 @@
     [key: string]: unknown;
   } = $props();
 
-  const base = `rounded-lg px-4 py-1.5 text-body-lg font-semibold uppercase transition-colors disabled:cursor-not-allowed ${focusRing}`;
+  const base = `rounded-full px-4 py-1.5 text-body-lg font-semibold uppercase tracking-wide transition-colors disabled:cursor-not-allowed ${focusRing}`;
   const state = $derived(
     disabled
-      ? "bg-pale-gray text-steel-gray"
+      ? "bg-slate-fill text-metal-gray"
       : active
-        ? "bg-action-blue text-snow-white"
-        : "bg-pale-gray text-midnight-indigo hover:bg-platinum-tint",
+        ? "bg-button-yellow text-night-sky"
+        : "bg-slate-fill text-ash-gray hover:text-button-yellow",
   );
 </script>
 

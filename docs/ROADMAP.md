@@ -29,7 +29,7 @@ Get the project legible before writing app code.
 
 Prove the architecture end-to-end with a trivial payload before any ML.
 
-- ☑ `frontend/` Svelte 5 + SvelteKit (static SPA) + Bun + Tailwind v4 (`@theme` tokens) + Montserrat, "hello" screen. Builds clean (`bun run build`).
+- ☑ `frontend/` Svelte 5 + SvelteKit (static SPA) + Bun + Tailwind v4 (`@theme` tokens) + Poppins/Inter/Playfair, "hello" screen. Builds clean (`bun run build`).
 - ☑ `frontend/src-tauri/` Rust (Tauri v2) shell: window config loads the Svelte build. Compiles clean (`cargo check`).
 - ☑ Rust sidecar supervisor (`supervisor.rs`): spawns the Python FastAPI sidecar (`uv run`), health-checks `/healthz`, restarts on crash, kills on app exit.
 - ☑ Typed IPC client in `frontend/src/lib/api/` (`client.ts` + `health.ts` + `engine.ts`) reading `/healthz` + `/engine/status`; the hello screen renders the value.

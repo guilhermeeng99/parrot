@@ -18,18 +18,18 @@
 </script>
 
 {#if state === "verifying"}
-  <div class="flex items-center gap-3 text-slate-blue">
+  <div class="flex items-center gap-3 text-ash-gray">
     <Spinner /> <span class="text-body-lg">Verifying the download…</span>
   </div>
 {:else}
   <div class="flex flex-col gap-2" aria-live="polite">
     <ProgressBar value={pct} />
     {#if attempt}
-      <span class="text-body text-slate-blue">Network hiccup — retrying (attempt {attempt})…</span>
+      <span class="text-body text-ash-gray">Network hiccup — retrying (attempt {attempt})…</span>
     {:else if pct === null}
-      <span class="text-body text-slate-blue">Preparing download…</span>
+      <span class="text-body text-ash-gray">Preparing download…</span>
     {:else}
-      <span class="font-mono text-body text-slate-blue">
+      <span class="font-mono text-body text-ash-gray">
         {filename ?? "model"} · {Math.round(pct * 100)}%
       </span>
     {/if}

@@ -5,6 +5,10 @@
 
   // The one button primitive (design-system Rule 8). Every clickable affordance
   // routes through here with a variant/size — never an ad-hoc <button>.
+  //  - primary: the ONE yellow CTA (Button Yellow fill, Night Sky text).
+  //  - ghost:   text-only action (yellow label, subtle hover wash).
+  //  - outline: bordered neutral action on the dark canvas.
+  // All variants are pill-shaped (rounded-full) per Empower.
   let {
     variant = "primary",
     size = "md",
@@ -27,15 +31,15 @@
 
   const sizes = {
     md: "px-6 py-3 text-body-lg", // ≥40px hit target
-    sm: "px-3 py-1.5 text-body",
+    sm: "px-4 py-1.5 text-body",
   } as const;
   const variants = {
-    primary: "bg-action-blue text-snow-white hover:brightness-105",
-    ghost: "bg-transparent text-action-blue hover:bg-pale-gray",
+    primary: "bg-button-yellow text-night-sky hover:brightness-105",
+    ghost: "bg-transparent text-button-yellow hover:bg-button-yellow/10",
     outline:
-      "border border-platinum-tint bg-snow-white text-midnight-indigo hover:border-action-blue",
+      "border border-metal-gray bg-transparent text-cloud-whisper hover:border-button-yellow",
   } as const;
-  const base = `inline-flex items-center justify-center gap-2 rounded-lg font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed ${focusRing}`;
+  const base = `inline-flex items-center justify-center gap-2 rounded-full font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed ${focusRing}`;
 </script>
 
 <button

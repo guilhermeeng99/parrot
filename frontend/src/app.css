@@ -1,47 +1,73 @@
 @import "tailwindcss";
 
 /*
- * Parrot design tokens — adopted verbatim from Toolzy's Calendly "Sky Blueprint"
- * design system. Light theme only in V1 (dark = backlog). See
- * ../../docs/specs/design-system.md — this @theme block is the source of truth.
+ * Parrot design tokens — "Empower" command center.
+ * Adapted from the Refero "Empower" style (empower.me): a bold, high-contrast
+ * dark fintech canvas punctuated by a single optimistic yellow spark. Parrot
+ * ships the DARK-dominant read of Empower: a midnight command center where
+ * surface contrast + radius carry hierarchy (not heavy shadows), and Button
+ * Yellow is reserved exclusively for the primary action path — never for text.
+ *
+ * This @theme block is the single source of truth. See
+ * ../../docs/specs/design-system.md. A future light-section rhythm can reuse the
+ * `canvas-white` / `cloud-whisper` surfaces already defined here.
  */
 @theme {
-  --color-midnight-indigo: #0b3558; /* primary text, headings, inactive nav */
-  --color-action-blue: #006bff; /* the ONE action color */
-  --color-glacier-blue: #004eba; /* informational badge text / alerts */
-  --color-snow-white: #ffffff; /* page bg, card surfaces */
-  --color-cloud-mist: #f8f9fb; /* off-white section bg (body bg) */
-  --color-pale-gray: #e7edf6; /* badge fills, soft separation, slider track */
-  --color-slate-blue: #476788; /* secondary text, supporting info, icon fills */
-  --color-steel-gray: #a6bbd1; /* tertiary text, disabled, fine borders */
-  --color-platinum-tint: #d4e0ed; /* inactive field borders, subtle dividers */
-  --color-outline-gray: #e6e6e6; /* separators, hairline borders */
-  --color-text-black: #0a0a0a; /* body text / default links — never pure #000 */
-  --color-success: #1a7f4b; /* success feedback */
-  --color-danger: #c2362f; /* failure feedback */
+  /* ── Surfaces (dark-dominant) ────────────────────────────────────────── */
+  --color-night-sky: #100f0f; /* deepest chrome: header, footer, modal scrim base */
+  --color-deep-space: #171616; /* page / body background */
+  --color-charcoal-card: #262525; /* card + panel surface */
+  --color-slate-fill: #322f2f; /* subtle inset: slider/progress track, badge fill, code/log block */
 
-  --font-gilroy: "Montserrat", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
-    "Segoe UI", Roboto, sans-serif;
+  /* ── Light surfaces (available for callout sections; V1 is dark-dominant) ─ */
+  --color-canvas-white: #ffffff; /* light section bg / pure-white surface */
+  --color-cloud-whisper: #fffdf6; /* PRIMARY TEXT on dark — and a warm off-white light surface */
 
+  /* ── Accent — the ONE action color ───────────────────────────────────── */
+  --color-button-yellow: #e4e24e; /* primary CTA, active nav/pill, focus ring, key accents — NEVER text */
+  --color-muted-yellow: #faf9b6; /* soft highlight callout / secondary accent surface */
+
+  /* ── Neutrals / text ─────────────────────────────────────────────────── */
+  --color-ash-gray: #a8a59b; /* secondary text on dark (AA on deep-space/charcoal) */
+  --color-metal-gray: #64635c; /* borders, dividers, tertiary/caption text, disabled */
+
+  /* ── Status ──────────────────────────────────────────────────────────── */
+  --color-success: #5fd39a; /* success feedback (reads on dark) */
+  --color-danger: #ff6b5e; /* failure feedback (warm coral, reads on dark) */
+
+  /* ── Type families ───────────────────────────────────────────────────── */
+  /* Gravity → Poppins: display/hero, assertive, tight tracking (weight 700/800/900). */
+  --font-display: "Poppins", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* EmpowerSerif → Playfair Display: expressive serif headings (weight 600/700). */
+  --font-serif: "Playfair Display", Georgia, "Times New Roman", serif;
+  /* GTAmerica(Extended/Expanded) → Inter: body, navigation, button/control labels. */
+  --font-body: "Inter", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Roboto, sans-serif;
+  /* Back-compat alias: any lingering `font-gilroy` utility resolves to the body family. */
+  --font-gilroy: "Inter", ui-sans-serif, system-ui, sans-serif;
+
+  /* ── Type scale (app-scaled Empower; display sizes use --font-display) ─── */
+  --text-caption: 11px;
+  --text-caption--line-height: 1.5;
   --text-body: 14px;
-  --text-body--line-height: 1.71;
+  --text-body--line-height: 1.6;
   --text-body-lg: 16px;
   --text-body-lg--line-height: 1.6;
-  --text-subheading: 18px;
-  --text-subheading--line-height: 1.6;
-  --text-heading: 24px;
-  --text-heading--line-height: 1.4;
-  --text-heading-lg: 28px;
-  --text-heading-lg--line-height: 1.2;
-  --text-display-sm: 38px;
-  --text-display-sm--line-height: 1.21;
+  --text-subheading: 20px;
+  --text-subheading--line-height: 1.4;
+  --text-heading: 28px;
+  --text-heading--line-height: 1.15;
+  --text-heading-lg: 40px;
+  --text-heading-lg--line-height: 1.05;
+  --text-display-sm: 56px;
+  --text-display-sm--line-height: 1;
 
-  --shadow-sm:
-    rgba(71, 103, 136, 0.04) 0px 4px 5px 0px, rgba(71, 103, 136, 0.03) 0px 4px 10px 0px,
-    rgba(71, 103, 136, 0.05) 0px 10px 20px 0px;
-  --shadow-sm-2:
-    rgba(71, 103, 136, 0.04) 0px 4px 5px 0px, rgba(71, 103, 136, 0.03) 0px 8px 15px 0px,
-    rgba(71, 103, 136, 0.08) 0px 30px 50px 0px;
+  /* ── Elevation ───────────────────────────────────────────────────────── */
+  /* Empower leans on surface contrast + radius, not heavy chrome. These are
+   * deliberately soft dark shadows that only GROUND floating cards on the dark
+   * canvas — never the diffuse slate lifts of the old light theme. */
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.35);
+  --shadow-sm-2: 0 14px 36px rgba(0, 0, 0, 0.45);
 }
 
 @layer base {
@@ -50,18 +76,18 @@
     text-rendering: optimizeLegibility;
   }
   body {
-    background: var(--color-cloud-mist);
-    color: var(--color-midnight-indigo);
-    font-family: var(--font-gilroy);
+    background: var(--color-deep-space);
+    color: var(--color-cloud-whisper);
+    font-family: var(--font-body);
     font-size: var(--text-body-lg);
     line-height: 1.6;
   }
 }
 
 /*
- * Slider — `.parrot-range` (Toolzy's `.toolzy-range`, renamed). 6px pale-gray
- * track, action-blue fill driven by the inline `--fill` %, 18px action-blue
- * thumb with a 2px snow-white border. Realized from tokens, no new colors.
+ * Slider — `.parrot-range`. 6px slate-fill track, button-yellow fill driven by
+ * the inline `--fill` %, 18px button-yellow thumb with a 2px night-sky border
+ * (the dark surface it sits on). Realized from tokens, no new colors.
  */
 .parrot-range {
   -webkit-appearance: none;
@@ -71,8 +97,8 @@
   border-radius: 9999px;
   background: linear-gradient(
     to right,
-    var(--color-action-blue) var(--fill, 0%),
-    var(--color-pale-gray) var(--fill, 0%)
+    var(--color-button-yellow) var(--fill, 0%),
+    var(--color-slate-fill) var(--fill, 0%)
   );
   cursor: pointer;
 }
@@ -82,15 +108,15 @@
   width: 18px;
   height: 18px;
   border-radius: 9999px;
-  background: var(--color-action-blue);
-  border: 2px solid var(--color-snow-white);
+  background: var(--color-button-yellow);
+  border: 2px solid var(--color-night-sky);
 }
 .parrot-range::-moz-range-thumb {
   width: 18px;
   height: 18px;
   border-radius: 9999px;
-  background: var(--color-action-blue);
-  border: 2px solid var(--color-snow-white);
+  background: var(--color-button-yellow);
+  border: 2px solid var(--color-night-sky);
 }
 
 /* Indeterminate ProgressBar chunk — slides across the track. */

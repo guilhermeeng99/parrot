@@ -96,7 +96,7 @@ parrot/
 | **Frontend** | Svelte + SvelteKit (SPA mode) | Mode/route-based UI; no SSR (it's a desktop app) |
 | **Frontend tooling** | Bun | Package manager + dev server + build |
 | **Frontend lang** | TypeScript (strict) | All UI + IPC clients typed |
-| **Styling / design system** | Tailwind v4 (`@theme` tokens) + Montserrat | Calendly "Sky Blueprint" light theme, adopted from Toolzy. Light-only in V1 (dark = backlog). Source of truth: `frontend/src/app.css` + [docs/specs/design-system.md](docs/specs/design-system.md) / [docs/specs/ui-ux.md](docs/specs/ui-ux.md) |
+| **Styling / design system** | Tailwind v4 (`@theme` tokens) + Poppins/Inter/Playfair | **"Empower" dark command center**: Deep Space canvas, Charcoal cards, Cloud Whisper text, one Button Yellow accent (never text). Dark-dominant in V1 (light-section rhythm = backlog). Source of truth: `frontend/src/app.css` + [docs/specs/design-system.md](docs/specs/design-system.md) / [docs/specs/ui-ux.md](docs/specs/ui-ux.md) |
 | **Engine** | Python 3.11+ + FastAPI | Local sidecar; REST + WS |
 | **ML runtime** | PyTorch + transformers | OmniVoice model; CUDA/CPU auto-detect (Windows) |
 | **Python env** | uv | Bootstraps the venv; shipped as a Tauri `externalBin` sidecar |

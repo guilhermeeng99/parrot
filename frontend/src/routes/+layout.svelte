@@ -1,11 +1,19 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import "../app.css";
-  // Montserrat (the --font-gilroy family) — weights 400/500/600/700.
-  import "@fontsource/montserrat/400.css";
-  import "@fontsource/montserrat/500.css";
-  import "@fontsource/montserrat/600.css";
-  import "@fontsource/montserrat/700.css";
+  // Empower type system — bundled locally (offline-first).
+  // Inter (--font-body): body, navigation, control labels.
+  import "@fontsource/inter/400.css";
+  import "@fontsource/inter/500.css";
+  import "@fontsource/inter/600.css";
+  import "@fontsource/inter/700.css";
+  // Poppins (--font-display): assertive hero/section headlines.
+  import "@fontsource/poppins/600.css";
+  import "@fontsource/poppins/700.css";
+  import "@fontsource/poppins/800.css";
+  // Playfair Display (--font-serif): expressive serif headings.
+  import "@fontsource/playfair-display/600.css";
+  import "@fontsource/playfair-display/700.css";
 
   import { bootstrap, initBootstrap, retry } from "$lib/stores/bootstrap";
   import { mode } from "$lib/stores/ui";
@@ -39,24 +47,26 @@
 </script>
 
 {#if $bootstrap.state === "checking"}
-  <main class="flex min-h-screen items-center justify-center bg-cloud-mist px-6">
+  <main class="flex min-h-screen items-center justify-center bg-deep-space px-6">
     <Card class="w-full max-w-md">
       <div class="flex items-center gap-3">
         <Spinner />
-        <span class="text-body-lg text-slate-blue">
+        <span class="text-body-lg text-ash-gray">
           {$bootstrap.stage ?? "Starting Parrot's engine…"}
         </span>
       </div>
     </Card>
   </main>
 {:else if $bootstrap.state === "failed"}
-  <main class="flex min-h-screen items-center justify-center bg-cloud-mist px-6">
+  <main class="flex min-h-screen items-center justify-center bg-deep-space px-6">
     <Card class="w-full max-w-md">
-      <h1 class="text-heading font-bold text-danger">Parrot's engine couldn't start.</h1>
-      <p class="text-body text-slate-blue">{$bootstrap.message}</p>
+      <h1 class="text-heading font-display font-bold tracking-tight text-danger">
+        Parrot's engine couldn't start.
+      </h1>
+      <p class="text-body text-ash-gray">{$bootstrap.message}</p>
       {#if $bootstrap.logs && $bootstrap.logs.length > 0}
         <pre
-          class="max-h-48 overflow-auto rounded-lg bg-pale-gray p-3 text-body text-slate-blue">{$bootstrap.logs.join(
+          class="max-h-48 overflow-auto rounded-xl bg-night-sky p-3 text-body text-ash-gray">{$bootstrap.logs.join(
             "\n",
           )}</pre>
       {/if}
@@ -69,16 +79,14 @@
 {:else if !setupReady}
   <SetupGate onready={() => (setupReady = true)} />
 {:else}
-  <header
-    class="sticky top-0 z-50 border-b border-outline-gray bg-snow-white/90 backdrop-blur"
-  >
+  <header class="sticky top-0 z-50 border-b border-white/10 bg-night-sky/90 backdrop-blur">
     <div class="mx-auto flex h-16 max-w-[1000px] items-center gap-4 px-6">
-      <span class="text-heading font-bold text-midnight-indigo">
+      <span class="text-heading font-display font-bold tracking-tight text-cloud-whisper">
         <span aria-hidden="true">🦜</span> Parrot
       </span>
       <Badge>local</Badge>
       {#if $appVersion}
-        <span class="text-body text-slate-blue" title="Installed version">v{$appVersion}</span>
+        <span class="text-body text-ash-gray" title="Installed version">v{$appVersion}</span>
       {/if}
       <nav class="ml-auto">
         <ModeTabs items={navItems} value={$mode} onselect={(v) => mode.set(v as typeof $mode)} />

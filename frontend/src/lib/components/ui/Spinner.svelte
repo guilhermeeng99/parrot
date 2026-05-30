@@ -6,7 +6,7 @@
 </script>
 
 <span
-  class="{dims} shrink-0 animate-spin rounded-full border-2 border-action-blue/30 border-t-action-blue {klass}"
+  class="{dims} shrink-0 animate-spin rounded-full border-2 border-button-yellow/30 border-t-button-yellow {klass}"
   role="status"
   aria-label="Working"
 ></span>

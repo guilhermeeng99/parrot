@@ -76,7 +76,7 @@
 <div class="flex flex-col items-center gap-3">
   <button
     type="button"
-    class="flex h-20 w-20 items-center justify-center rounded-full bg-action-blue text-snow-white shadow-sm-2 transition hover:brightness-105 {recording ? 'parrot-pulse' : ''}"
+    class="flex h-20 w-20 items-center justify-center rounded-full bg-button-yellow text-night-sky shadow-sm-2 transition hover:brightness-105 {recording ? 'parrot-pulse' : ''}"
     onclick={() => (recording ? stop() : start())}
     aria-label={recording ? "Stop recording" : "Start recording"}
   >
@@ -94,11 +94,11 @@
     {/if}
   </button>
   {#if recording}
-    <span class="font-mono text-body text-slate-blue">{fmt(elapsed)}</span>
-    <div class="h-2 w-40 overflow-hidden rounded-full bg-pale-gray">
-      <div class="h-full rounded-full bg-action-blue" style="width:{level * 100}%"></div>
+    <span class="font-mono text-body text-ash-gray">{fmt(elapsed)}</span>
+    <div class="h-2 w-40 overflow-hidden rounded-full bg-slate-fill">
+      <div class="h-full rounded-full bg-button-yellow" style="width:{level * 100}%"></div>
     </div>
   {:else}
-    <span class="text-body text-slate-blue">Tap to record — 3–10s is the sweet spot.</span>
+    <span class="text-body text-ash-gray">Tap to record — 3–10s is the sweet spot.</span>
   {/if}
 </div>

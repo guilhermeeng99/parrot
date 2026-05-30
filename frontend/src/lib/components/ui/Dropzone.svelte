@@ -27,8 +27,8 @@
   // as a store subscription of `state` rather than the rune.
   const dropClasses = $derived(
     over
-      ? "border-action-blue bg-pale-gray/60"
-      : "border-platinum-tint bg-cloud-mist hover:border-action-blue",
+      ? "border-button-yellow bg-slate-fill/60"
+      : "border-metal-gray bg-deep-space hover:border-button-yellow",
   );
 </script>
 

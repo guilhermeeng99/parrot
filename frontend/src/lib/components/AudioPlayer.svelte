@@ -68,7 +68,7 @@
 
   <button
     type="button"
-    class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-action-blue text-snow-white transition hover:brightness-105 disabled:opacity-50"
+    class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-button-yellow text-night-sky transition hover:brightness-105 disabled:opacity-50"
     onclick={toggle}
     disabled={errored}
     aria-label={playing ? "Pause" : "Play"}
@@ -94,14 +94,14 @@
     }}
   />
 
-  <span class="shrink-0 font-mono text-body text-slate-blue" aria-live="off">
+  <span class="shrink-0 font-mono text-body text-ash-gray" aria-live="off">
     {fmt(current)} / {fmt(duration)}
   </span>
 
   {#if downloadable}
     <button
       type="button"
-      class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-platinum-tint text-action-blue transition hover:border-action-blue hover:bg-action-blue/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-action-blue"
+      class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-metal-gray text-button-yellow transition hover:border-button-yellow hover:bg-button-yellow/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-button-yellow"
       onclick={ondownload}
       title="Download .mp3"
       aria-label="Download audio"

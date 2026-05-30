@@ -164,7 +164,7 @@
 
 <section class="flex flex-col gap-6">
   <header class="mx-auto max-w-xl text-center">
-    <h1 class="text-display-sm font-bold text-midnight-indigo">Speak</h1>
+    <h1 class="text-display-sm font-display font-bold tracking-tight text-cloud-whisper">Speak</h1>
   </header>
 
   <Card>
@@ -183,18 +183,18 @@
 
     <button
       type="button"
-      class="w-fit text-body font-semibold text-action-blue hover:underline"
+      class="w-fit text-body font-semibold text-button-yellow hover:underline"
       aria-expanded={showAdvanced}
       onclick={() => (showAdvanced = !showAdvanced)}
     >
       Advanced — you probably don't need this {showAdvanced ? "▴" : "▾"}
     </button>
     {#if showAdvanced}
-      <div class="flex flex-wrap gap-3 border-t border-outline-gray pt-4">
+      <div class="flex flex-wrap gap-3 border-t border-white/10 pt-4">
         <Field label="Seed" class="min-w-[140px] flex-1">
           <input
             type="number"
-            class="w-full rounded-lg border border-platinum-tint bg-snow-white px-3 py-1.5 text-body-lg text-midnight-indigo focus-visible:border-action-blue focus-visible:outline-none"
+            class="w-full rounded-xl border border-metal-gray bg-charcoal-card px-3 py-1.5 text-body-lg text-cloud-whisper focus-visible:border-button-yellow focus-visible:outline-none"
             placeholder="random"
             value={seed ?? ""}
             oninput={(e) => {
@@ -222,25 +222,25 @@
     {#if busy}
       {@const pct = Math.round(($synthesis.progress ?? 0) * 100)}
       <div class="flex flex-col gap-1">
-        <div class="flex items-center justify-between text-body text-slate-blue">
+        <div class="flex items-center justify-between text-body text-ash-gray">
           <!-- Announce only the coarse phase (Preparing vs Generating), not every
                per-step % tick — re-announcing the percent on each step is noise. -->
           <span aria-live="polite">{pct > 0 ? "Generating…" : "Preparing model…"}</span>
           <span class="font-mono" aria-hidden="true">{pct}%</span>
         </div>
         <div
-          class="h-2 w-full overflow-hidden rounded-full bg-outline-gray"
+          class="h-2 w-full overflow-hidden rounded-full bg-slate-fill"
           role="progressbar"
           aria-valuemin={0}
           aria-valuemax={100}
           aria-valuenow={pct}
         >
           <div
-            class="h-full rounded-full bg-action-blue transition-[width] duration-200 ease-out"
+            class="h-full rounded-full bg-button-yellow transition-[width] duration-200 ease-out"
             style="width: {Math.max(pct, 3)}%"
           ></div>
         </div>
-        <p class="text-body text-slate-blue">
+        <p class="text-body text-ash-gray">
           {pct > 0
             ? "Synthesizing on the diffusion steps — almost there."
             : "Loading the voice model into memory (first run of the session is slower)."}
@@ -252,9 +252,9 @@
   {#if $synthesis.state === "done" && $synthesis.result}
     {@const r = $synthesis.result}
     <Card>
-      <h2 class="text-heading font-bold text-midnight-indigo">Result</h2>
+      <h2 class="text-heading font-display font-bold tracking-tight text-cloud-whisper">Result</h2>
       <AudioPlayer src={r.url} downloadable ondownload={download} />
-      <p class="font-mono text-body text-slate-blue">
+      <p class="font-mono text-body text-ash-gray">
         {r.durationSeconds.toFixed(1)}s · {r.genTime.toFixed(1)}s to generate{r.seed !== null
           ? ` · seed ${r.seed}`
           : ""}
@@ -267,8 +267,8 @@
     </Card>
   {:else if $synthesis.state === "error"}
     <Card>
-      <h2 class="text-heading font-bold text-danger">Couldn't synthesize that.</h2>
-      <p class="text-body text-slate-blue">{$synthesis.error}</p>
+      <h2 class="text-heading font-display font-bold tracking-tight text-danger">Couldn't synthesize that.</h2>
+      <p class="text-body text-ash-gray">{$synthesis.error}</p>
       <div class="flex gap-2">
         <Button onclick={() => speak(params())}>
           {$synthesis.oom ? "Flush & retry" : "Retry"}
@@ -280,29 +280,29 @@
 
   <Card>
     <div class="flex items-center justify-between">
-      <h2 class="text-heading font-bold text-midnight-indigo">History</h2>
+      <h2 class="text-heading font-display font-bold tracking-tight text-cloud-whisper">History</h2>
       {#if $history.length > 0}
         <Button size="sm" variant="ghost" onclick={() => (confirmClear = true)}>Clear all</Button>
       {/if}
     </div>
     {#if $history.length === 0}
-      <p class="text-body-lg text-slate-blue">Nothing spoken yet — type above and hit Speak.</p>
+      <p class="text-body-lg text-ash-gray">Nothing spoken yet — type above and hit Speak.</p>
     {:else}
-      <ul class="flex flex-col divide-y divide-outline-gray">
+      <ul class="flex flex-col divide-y divide-white/10">
         {#each $history as row (row.id)}
           <li class="flex flex-col gap-2 py-3">
             <div class="flex items-start justify-between gap-3">
-              <span class="min-w-0 flex-1 truncate text-body-lg text-midnight-indigo" title={row.text}>
+              <span class="min-w-0 flex-1 truncate text-body-lg text-cloud-whisper" title={row.text}>
                 {row.text}
               </span>
               <button
                 type="button"
-                class="shrink-0 text-body text-slate-blue hover:text-danger"
+                class="shrink-0 text-body text-ash-gray hover:text-danger"
                 aria-label="Delete"
                 onclick={() => removeRow(row.id)}>✕</button
               >
             </div>
-            <span class="text-body text-slate-blue">
+            <span class="text-body text-ash-gray">
               {profileName(row.profile_id)} · {formatTimestamp(row.created_at)}
             </span>
             {#await audioUrl(row.id) then url}
@@ -320,7 +320,7 @@
 </section>
 
 <Dialog open={confirmClear} title="Clear all history?" dismissable={false}>
-  <p class="text-body-lg text-slate-blue">
+  <p class="text-body-lg text-ash-gray">
     This permanently removes every generation from your history. This can't be undone.
   </p>
   <div class="flex justify-end gap-2">

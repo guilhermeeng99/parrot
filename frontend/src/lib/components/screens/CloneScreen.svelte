@@ -130,8 +130,8 @@
 
 <section class="flex flex-col gap-6">
   <header class="mx-auto max-w-xl text-center">
-    <h1 class="text-display-sm font-bold text-midnight-indigo">Clone a voice</h1>
-    <p class="text-body-lg text-slate-blue">
+    <h1 class="text-display-sm font-display font-bold tracking-tight text-cloud-whisper">Clone a voice</h1>
+    <p class="text-body-lg text-ash-gray">
       Record or upload a short, clean sample. 3–10 seconds is the sweet spot.
     </p>
   </header>
@@ -161,22 +161,22 @@
         accept="audio/*"
         onfile={(file) => setCaptured(file, file.name)}
       >
-        <span class="text-body-lg text-midnight-indigo">Drop an audio file here, or click to choose</span>
-        <span class="text-body text-slate-blue">wav · mp3 · m4a · flac · ogg · webm — stays on your device</span>
+        <span class="text-body-lg text-cloud-whisper">Drop an audio file here, or click to choose</span>
+        <span class="text-body text-ash-gray">wav · mp3 · m4a · flac · ogg · webm — stays on your device</span>
       </Dropzone>
     {/if}
 
     {#if captured}
-      <div class="flex flex-col gap-3 border-t border-outline-gray pt-4">
+      <div class="flex flex-col gap-3 border-t border-white/10 pt-4">
         <AudioPlayer src={captured.url} />
-        {#if durationHint}<p class="text-body text-slate-blue">{durationHint}</p>{/if}
+        {#if durationHint}<p class="text-body text-ash-gray">{durationHint}</p>{/if}
         <Field label="Voice name">
           <TextInput bind:value={name} placeholder="e.g. My narration voice" />
         </Field>
         <Field label="What was said? (optional)" hint={refHint}>
           <TextInput bind:value={refText} placeholder="Transcript of the reference clip" />
           {#if $txStore.transcription.state === "transcribing"}
-            <span class="mt-1 inline-flex items-center gap-2 text-body text-slate-blue">
+            <span class="mt-1 inline-flex items-center gap-2 text-body text-ash-gray">
               <Spinner size="sm" /> Transcribing your clip…
             </span>
           {/if}
@@ -190,9 +190,9 @@
   </Card>
 
   <Card>
-    <h2 class="text-heading font-bold text-midnight-indigo">Your voices</h2>
+    <h2 class="text-heading font-display font-bold tracking-tight text-cloud-whisper">Your voices</h2>
     {#if $profiles.profiles.length === 0}
-      <p class="text-body-lg text-slate-blue">
+      <p class="text-body-lg text-ash-gray">
         No voices yet. Record or upload a sample above to clone your first voice.
       </p>
     {:else}
@@ -208,7 +208,7 @@
 </section>
 
 <Dialog bind:open={confirmDuplicate} title="Duplicate voice name">
-  <p class="text-body-lg text-slate-blue">
+  <p class="text-body-lg text-ash-gray">
     You already have a voice named "{name.trim()}". Save anyway?
   </p>
   <div class="flex justify-end gap-2">

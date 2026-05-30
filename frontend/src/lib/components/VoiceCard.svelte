@@ -81,10 +81,10 @@
   }
 
   const iconBtn =
-    "flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-platinum-tint transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-action-blue";
+    "flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-metal-gray transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-button-yellow";
 </script>
 
-<div class="flex flex-col gap-4 rounded-2xl bg-snow-white p-6 shadow-sm-2 transition-shadow hover:shadow-sm">
+<div class="flex flex-col gap-4 rounded-3xl bg-charcoal-card p-6 shadow-sm-2 ring-1 ring-white/5 transition-shadow hover:shadow-sm">
   <button
     type="button"
     class="flex items-start justify-between gap-3 text-left"
@@ -92,10 +92,10 @@
     aria-label="Open {profile.name}"
   >
     <span class="min-w-0">
-      <span class="block truncate text-heading font-semibold text-midnight-indigo" title={profile.name}>
+      <span class="block truncate text-heading font-display font-semibold tracking-tight text-cloud-whisper" title={profile.name}>
         {profile.name}
       </span>
-      <span class="text-body text-slate-blue">{profile.language} · {created}</span>
+      <span class="text-body text-ash-gray">{profile.language} · {created}</span>
     </span>
     {#if profile.is_locked}
       <Badge><span aria-hidden="true">🔒</span> Locked</Badge>
@@ -111,7 +111,7 @@
     <span class="flex-1"></span>
     <button
       type="button"
-      class="{iconBtn} text-action-blue hover:border-action-blue hover:bg-action-blue/10"
+      class="{iconBtn} text-button-yellow hover:border-button-yellow hover:bg-button-yellow/10"
       onclick={download}
       title="Download original clip"
       aria-label="Download {profile.name}'s original clip"
@@ -135,7 +135,7 @@
 </div>
 
 <Dialog bind:open={confirmDelete} title="Delete this voice?">
-  <p class="text-body-lg text-slate-blue">
+  <p class="text-body-lg text-ash-gray">
     Delete "{profile.name}"? This removes the voice and its reference clip. Past generations stay in
     History. This can't be undone.
   </p>

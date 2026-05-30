@@ -31,9 +31,9 @@ Invariants:
 - Clearing the token deletes the `hf_token` row but **preserves** `_secret_key_salt`, so a re-save by the same user on the same machine round-trips correctly.
 - Parrot does **not** persist theme, zoom, or any non-secret config in this table. The only sidecar-owned setting is the token.
 
-### 2. Frontend — Appearance (fixed light theme, V1)
+### 2. Frontend — Appearance (fixed dark theme, V1)
 
-Appearance is **not configurable in V1**. Parrot ships exactly one visual system — the Calendly "Sky Blueprint on Bright Paper" light theme (Montserrat type family, action-blue as the single interaction color) — defined and locked in [design-system.md](./design-system.md). There is **no theme toggle and no UI-zoom control** in V1; both are backlog (see [Non-goals](#non-goals)). Because there is nothing to configure, the Settings screen surfaces **no Appearance card** (Rule 10's "simply omitted") — the theme is just applied. Likewise there is no **Updates** card: the installed version and the "update available" action live in the app header (`+layout.svelte`), which auto-checks on launch, so a separate Settings section would be redundant. The Settings screen's cards are therefore: Engine, Hugging Face token, and Data folder.
+Appearance is **not configurable in V1**. Parrot ships exactly one visual system — the "Empower" dark command center (Poppins/Inter/Playfair type families, Button Yellow as the single interaction color on a Deep Space canvas) — defined and locked in [design-system.md](./design-system.md). There is **no theme toggle and no UI-zoom control** in V1; both are backlog (see [Non-goals](#non-goals)). Because there is nothing to configure, the Settings screen surfaces **no Appearance card** (Rule 10's "simply omitted") — the theme is just applied. Likewise there is no **Updates** card: the installed version and the "update available" action live in the app header (`+layout.svelte`), which auto-checks on launch, so a separate Settings section would be redundant. The Settings screen's cards are therefore: Engine, Hugging Face token, and Data folder.
 
 ```ts
 // V1: no user-tunable appearance prefs.

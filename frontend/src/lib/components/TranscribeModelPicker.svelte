@@ -35,9 +35,9 @@
   let busy = $derived(dl.state === "downloading" || dl.state === "verifying");
 </script>
 
-<div class="flex flex-col gap-3 rounded-xl bg-pale-gray/60 p-4">
+<div class="flex flex-col gap-3 rounded-xl bg-slate-fill/60 p-4">
   <div class="flex items-center justify-between gap-2">
-    <span class="text-body font-semibold uppercase tracking-wide text-slate-blue">
+    <span class="text-body font-semibold uppercase tracking-wide text-ash-gray">
       Auto-transcription
     </span>
     {#if $transcribe.status}
@@ -51,7 +51,7 @@
     {/if}
   </div>
 
-  <p class="text-body text-slate-blue">
+  <p class="text-body text-ash-gray">
     Parrot can fill the transcript for you by listening to your clip. Pick a model and download it
     once — higher fidelity is larger and slower.
   </p>

@@ -1,6 +1,6 @@
 <script lang="ts">
-  // 6px pale-gray track, action-blue fill driven by the inline --fill %, 18px
-  // action-blue thumb. Keyboard: arrows step, Home/End jump (native range).
+  // 6px slate-fill track, button-yellow fill driven by the inline --fill %, 18px
+  // button-yellow thumb. Keyboard: arrows step, Home/End jump (native range).
   let {
     min = 0,
     max = 100,

@@ -28,7 +28,10 @@
     "vitest": "^4.1.7"
   },
   "dependencies": {
+    "@fontsource/inter": "^5.2.8",
     "@fontsource/montserrat": "^5.1.0",
+    "@fontsource/playfair-display": "^5.2.8",
+    "@fontsource/poppins": "^5.2.7",
     "@tauri-apps/api": "^2.1.0"
   },
   "//overrides": "Force the cookie fix (GHSA-pxg6-pf52-xh8x); SvelteKit still resolves cookie <0.7.0 transitively. 0.7.x is API-compatible.",

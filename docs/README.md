@@ -21,7 +21,7 @@ This is the source of truth for Parrot. Code conforms to these docs, not the oth
 | [specs/device-detection.md](specs/device-detection.md) | GPU/CPU auto-detect (CUDA/CPU) on Windows. |
 | [specs/ipc-contract.md](specs/ipc-contract.md) | The complete frontend↔sidecar API + Tauri command surface. |
 | [specs/settings.md](specs/settings.md) | Appearance, engine status, optional HF token entry. |
-| [specs/design-system.md](specs/design-system.md) | The design system: Calendly "Sky Blueprint" light theme (adopted from Toolzy), Tailwind v4 `@theme` tokens, Montserrat, the Svelte component inventory. |
+| [specs/design-system.md](specs/design-system.md) | The design system: "Empower" dark command center (Button Yellow accent), Tailwind v4 `@theme` tokens, Poppins/Inter/Playfair, the Svelte component inventory. |
 | [specs/ui-ux.md](specs/ui-ux.md) | Application UI/UX: app shell, screen-by-screen flows (Setup/Clone/Speak/Profile/Settings), interaction states, microcopy, accessibility-in-context. |
 | [specs/packaging.md](specs/packaging.md) | Tauri bundle + Python sidecar, Windows MSI installer, updater. |
 

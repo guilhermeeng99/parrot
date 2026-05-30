@@ -80,7 +80,7 @@
       {#if profile.is_locked}
         <Badge><span aria-hidden="true">🔒</span> Locked{profile.seed !== null ? ` · seed ${profile.seed}` : ""}</Badge>
       {/if}
-      <span class="text-body text-slate-blue">
+      <span class="text-body text-ash-gray">
         {new Date(profile.created_at * 1000).toLocaleDateString()}
       </span>
     </div>
@@ -90,7 +90,7 @@
     <Field label="Name"><TextInput bind:value={name} /></Field>
     <Field label="Transcript (ref_text)"><TextInput bind:value={refText} /></Field>
     <Field label="Language"><LanguageSelect bind:value={language} /></Field>
-    <p class="text-body text-slate-blue">
+    <p class="text-body text-ash-gray">
       The reference clip can't be edited — re-clone to replace it.
     </p>
 
@@ -104,15 +104,15 @@
 
     {#if usage}
       <div class="flex flex-col gap-2">
-        <p class="text-body text-slate-blue">Used in {usage.synth_total} generations.</p>
+        <p class="text-body text-ash-gray">Used in {usage.synth_total} generations.</p>
         {#if usage.synth_recent.length > 0}
-          <ul class="flex flex-col divide-y divide-outline-gray">
+          <ul class="flex flex-col divide-y divide-white/10">
             {#each usage.synth_recent as row (row.id)}
               <li class="flex flex-col gap-2 py-3">
-                <span class="truncate text-body-lg text-midnight-indigo" title={row.text}>
+                <span class="truncate text-body-lg text-cloud-whisper" title={row.text}>
                   {row.text}
                 </span>
-                <span class="text-body text-slate-blue">
+                <span class="text-body text-ash-gray">
                   {new Date(row.created_at * 1000).toLocaleString()}
                 </span>
                 {#await historyAudioUrl(row.id) then url}
@@ -125,7 +125,7 @@
       </div>
     {/if}
 
-    <div class="border-t border-outline-gray pt-4">
+    <div class="border-t border-white/10 pt-4">
       {#if confirmDelete}
         <p class="text-body text-danger">
           Delete '{profile.name}'? Your past generations stay in History; this can't be undone.

@@ -1,8 +1,9 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
 
-  // Status pill. Keeps the pale-gray fill; swaps text color by level. Always
-  // paired with text/icon — never color alone (a11y).
+  // Status pill on the dark canvas. Neutral Slate Fill chip; text color carries
+  // the level. Always paired with text/icon — never color alone (a11y). Yellow
+  // is never used as badge text (Empower: Button Yellow is background-only).
   let {
     level = "info",
     class: klass = "",
@@ -14,12 +15,12 @@
   } = $props();
 
   const text = $derived(
-    { info: "text-glacier-blue", success: "text-success", danger: "text-danger" }[level],
+    { info: "text-cloud-whisper", success: "text-success", danger: "text-danger" }[level],
   );
 </script>
 
 <span
-  class="inline-flex items-center gap-1 rounded-full bg-pale-gray px-2 py-1 text-body font-semibold {text} {klass}"
+  class="inline-flex items-center gap-1 rounded-full bg-slate-fill px-2.5 py-1 text-caption font-semibold uppercase tracking-wide {text} {klass}"
 >
   {@render children?.()}
 </span>

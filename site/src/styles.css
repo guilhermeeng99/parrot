@@ -1,47 +1,54 @@
 @import "tailwindcss";
 
-/* Parrot design tokens (Calendly "Sky Blueprint"), shared with the app's @theme
-   block in frontend/src/app.css. The two *-glow colors below are page-only
-   decoration (the hero blur orbs) and are not part of the app token set. */
+/* Parrot landing-page tokens — "Empower" dark command center, mirroring the app's
+   @theme block in frontend/src/app.css. Button Yellow is the lone accent (never
+   text). The two decorative glow orbs in the hero are page-only yellow blurs. */
 @theme {
-  --color-midnight-indigo: #0b3558;
-  --color-action-blue: #006bff;
-  --color-glacier-blue: #004eba;
-  --color-snow-white: #ffffff;
-  --color-cloud-mist: #f8f9fb;
-  --color-pale-gray: #e7edf6;
-  --color-slate-blue: #476788;
-  --color-platinum-tint: #d4e0ed;
-  --color-outline-gray: #e6e6e6;
-  --color-skybound-blue: #0099ff;
-  --color-lavender-glow: #e55cff;
+  /* Surfaces */
+  --color-night-sky: #100f0f;
+  --color-deep-space: #171616;
+  --color-charcoal-card: #262525;
+  --color-slate-fill: #322f2f;
+  /* Light surfaces (reserved) */
+  --color-canvas-white: #ffffff;
+  --color-cloud-whisper: #fffdf6;
+  /* Accent */
+  --color-button-yellow: #e4e24e;
+  --color-muted-yellow: #faf9b6;
+  /* Neutrals / text */
+  --color-ash-gray: #a8a59b;
+  --color-metal-gray: #64635c;
+  /* Decorative hero glow orbs (page-only) */
+  --color-glow-yellow: #e4e24e;
+  --color-glow-amber: #b8a93a;
 
-  --font-gilroy: "Montserrat", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
-    "Segoe UI", Roboto, sans-serif;
+  /* Type families */
+  --font-display: "Poppins", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-body: "Inter", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Roboto, sans-serif;
+  --font-gilroy: "Inter", ui-sans-serif, system-ui, sans-serif; /* back-compat alias */
 
+  /* Type scale (poster-scaled for the web hero) */
   --text-body: 14px;
-  --text-body--line-height: 1.71;
+  --text-body--line-height: 1.6;
   --text-body-lg: 16px;
   --text-body-lg--line-height: 1.6;
-  --text-subheading: 18px;
-  --text-subheading--line-height: 1.6;
-  --text-heading: 24px;
-  --text-heading--line-height: 1.4;
-  --text-heading-lg: 28px;
-  --text-heading-lg--line-height: 1.2;
-  --text-display-sm: 38px;
-  --text-display-sm--line-height: 1.21;
-  --text-display: 50px;
-  --text-display--line-height: 1.1;
-  --text-display-lg: 68px;
-  --text-display-lg--line-height: 1.1;
+  --text-subheading: 20px;
+  --text-subheading--line-height: 1.5;
+  --text-heading: 28px;
+  --text-heading--line-height: 1.2;
+  --text-heading-lg: 36px;
+  --text-heading-lg--line-height: 1.1;
+  --text-display-sm: 44px;
+  --text-display-sm--line-height: 1.05;
+  --text-display: 64px;
+  --text-display--line-height: 1.02;
+  --text-display-lg: 88px;
+  --text-display-lg--line-height: 1;
 
-  --shadow-sm:
-    rgba(71, 103, 136, 0.04) 0px 4px 5px 0px, rgba(71, 103, 136, 0.03) 0px 4px 10px 0px,
-    rgba(71, 103, 136, 0.05) 0px 10px 20px 0px;
-  --shadow-sm-2:
-    rgba(71, 103, 136, 0.04) 0px 4px 5px 0px, rgba(71, 103, 136, 0.03) 0px 8px 15px 0px,
-    rgba(71, 103, 136, 0.08) 0px 30px 50px 0px;
+  /* Elevation — soft dark shadows that only ground floating cards */
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.35);
+  --shadow-sm-2: 0 14px 36px rgba(0, 0, 0, 0.45);
 }
 
 @layer base {
@@ -51,9 +58,9 @@
     scroll-behavior: smooth;
   }
   body {
-    background-color: var(--color-snow-white);
-    color: var(--color-midnight-indigo);
-    font-family: var(--font-gilroy);
+    background-color: var(--color-deep-space);
+    color: var(--color-cloud-whisper);
+    font-family: var(--font-body);
     font-size: var(--text-body-lg);
     line-height: 1.6;
   }

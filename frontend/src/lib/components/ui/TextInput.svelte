@@ -18,8 +18,8 @@
   } = $props();
 
   let reveal = $state(false);
-  const border = $derived(invalid ? "border-danger" : "border-platinum-tint");
-  const base = `w-full rounded-lg border bg-snow-white px-3 py-1.5 text-body-lg text-midnight-indigo focus-visible:border-action-blue focus-visible:outline-none ${focusRing}`;
+  const border = $derived(invalid ? "border-danger" : "border-metal-gray");
+  const base = `w-full rounded-xl border bg-charcoal-card px-3 py-1.5 text-body-lg text-cloud-whisper focus-visible:border-button-yellow focus-visible:outline-none ${focusRing}`;
 </script>
 
 {#if type === "password"}
@@ -31,7 +31,7 @@
     {/if}
     <button
       type="button"
-      class="absolute right-2 top-1/2 -translate-y-1/2 text-body font-semibold text-action-blue hover:underline"
+      class="absolute right-2 top-1/2 -translate-y-1/2 text-body font-semibold text-button-yellow hover:underline"
       onclick={() => (reveal = !reveal)}
       aria-label={reveal ? "Hide token" : "Show token"}
     >

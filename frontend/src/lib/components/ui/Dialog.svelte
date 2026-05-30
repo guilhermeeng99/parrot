@@ -105,7 +105,7 @@
 
 {#if open}
   <div
-    class="fixed inset-0 z-[100] flex items-center justify-center bg-midnight-indigo/40 p-4"
+    class="fixed inset-0 z-[100] flex items-center justify-center bg-night-sky/70 p-4"
     role="presentation"
     onclick={(e) => {
       if (e.target === e.currentTarget) close();
@@ -113,14 +113,14 @@
   >
     <div
       bind:this={dialogEl}
-      class="flex w-full max-w-md flex-col gap-6 rounded-2xl bg-snow-white p-6 shadow-sm-2 focus:outline-none"
+      class="flex w-full max-w-md flex-col gap-6 rounded-3xl bg-charcoal-card p-6 shadow-sm-2 ring-1 ring-white/5 focus:outline-none"
       role="dialog"
       aria-modal="true"
       aria-label={title}
       tabindex="-1"
     >
       {#if title}
-        <h2 class="text-heading font-bold text-midnight-indigo">{title}</h2>
+        <h2 class="text-heading font-display font-bold tracking-tight text-cloud-whisper">{title}</h2>
       {/if}
       {@render children?.()}
     </div>
