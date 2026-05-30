@@ -64,33 +64,43 @@ pub struct UpdateProgress {
 // is handed and derives the dialog filter from the suggested filename's extension,
 // so it serves both exports: a generated clip (transcoded to MP3 server-side) and
 // a voice's original reference clip (downloaded as-is in its source format).
+//
+// `async` + `spawn_blocking`: the modal dialog AND the (potentially large) file
+// write run OFF the IPC/event-loop thread, so the WebView never freezes while the
+// OS "Save As" dialog is open or while the bytes are flushed to disk. The dialog
+// plugin's `blocking_*` variants are meant to be called off the main thread —
+// invoking them on it can stall the event loop.
 #[tauri::command]
-pub fn save_audio_dialog(
+pub async fn save_audio_dialog(
     app: AppHandle,
     default_name: String,
     audio_bytes: Option<Vec<u8>>,
 ) -> Result<Option<String>, String> {
-    let ext = std::path::Path::new(&default_name)
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("mp3")
-        .to_owned();
-    let label = format!("{} audio", ext.to_uppercase());
-    let chosen = app
-        .dialog()
-        .file()
-        .add_filter(&label, &[ext.as_str()])
-        .set_file_name(&default_name)
-        .blocking_save_file();
+    tauri::async_runtime::spawn_blocking(move || {
+        let ext = std::path::Path::new(&default_name)
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("mp3")
+            .to_owned();
+        let label = format!("{} audio", ext.to_uppercase());
+        let chosen = app
+            .dialog()
+            .file()
+            .add_filter(&label, &[ext.as_str()])
+            .set_file_name(&default_name)
+            .blocking_save_file();
 
-    let Some(file_path) = chosen else {
-        return Ok(None); // user cancelled
-    };
-    let path = file_path.into_path().map_err(|e| e.to_string())?;
-    if let Some(bytes) = audio_bytes {
-        std::fs::write(&path, bytes).map_err(|e| e.to_string())?;
-    }
-    Ok(Some(path.to_string_lossy().into_owned()))
+        let Some(file_path) = chosen else {
+            return Ok(None); // user cancelled
+        };
+        let path = file_path.into_path().map_err(|e| e.to_string())?;
+        if let Some(bytes) = audio_bytes {
+            std::fs::write(&path, bytes).map_err(|e| e.to_string())?;
+        }
+        Ok(Some(path.to_string_lossy().into_owned()))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]

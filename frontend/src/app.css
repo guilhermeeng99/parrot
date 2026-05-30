@@ -65,7 +65,7 @@
   /* ── Elevation ───────────────────────────────────────────────────────── */
   /* Empower leans on surface contrast + radius, not heavy chrome. These are
    * deliberately soft dark shadows that only GROUND floating cards on the dark
-   * canvas — never the diffuse slate lifts of the old light theme. */
+   * canvas — never the diffuse slate lifts of an earlier light-section rhythm. */
   --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.35);
   --shadow-sm-2: 0 14px 36px rgba(0, 0, 0, 0.45);
 }

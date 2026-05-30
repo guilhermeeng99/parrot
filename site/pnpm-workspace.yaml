@@ -1,0 +1,6 @@
+# pnpm 11 reads the build-script allowlist from here, not from package.json's
+# "pnpm" field (which it now ignores with a warning). Only these two packages are
+# allowed to run install scripts; everything else is blocked by default.
+onlyBuiltDependencies:
+  - esbuild
+  - "@tailwindcss/oxide"

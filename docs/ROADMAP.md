@@ -71,8 +71,8 @@ Make the MVP solid on Windows 10/11 (x64) — the only supported platform ([CLAU
 
 ## Phase 4 — Polish toward 1.0
 
-- ☑ Settings: appearance (fixed light), engine status, optional HF token ([settings.md](specs/settings.md))
-- ☑ Design-system pass: the full DS primitive set + Parrot components built in Svelte 5 against the verbatim Tailwind recipes; light theme; focus rings, reduced-motion, ARIA ([design-system.md](specs/design-system.md)). Dark mode stays backlog by design.
+- ☑ Settings: appearance (fixed dark), engine status, optional HF token ([settings.md](specs/settings.md))
+- ☑ Design-system pass: the full DS primitive set + Parrot components built in Svelte 5 against the verbatim Tailwind recipes; dark theme; focus rings, reduced-motion, ARIA ([design-system.md](specs/design-system.md)). A light-section rhythm stays backlog by design.
 - ☑ Streaming synthesis (`/ws/tts`) — backend WS + typed `ttsStream.ts` client (optional path; primary stays `POST /generate`).
 - ☑ Auto-updater wired (updater plugin + `plugins.updater` config + client store, client-rendered). *(The real minisign keypair has been generated; the public key is committed in `tauri.conf.json` and the private key lives in CI secrets — signed releases `v0.0.2`–`v0.0.5` have shipped via the live release workflow.)*
 - ☑ Error surfaces that tell the user what to do — uniform 5-state interaction model, redacted `detail` envelopes, OOM "Flush & retry", offline/gated setup guidance, engine-starting (not error) handling.

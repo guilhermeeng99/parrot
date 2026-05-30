@@ -719,6 +719,21 @@ mod tests {
         assert!(state.clean_requested.load(Ordering::SeqCst));
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn only_python_and_uv_images_are_force_killable() {
+        // The orphan-on-port killer force-kills ONLY Parrot's own sidecar/launcher
+        // images — never some unrelated app that merely grabbed the port. This is
+        // the safety gate behind `taskkill /F`, so it gets its own regression test.
+        assert!(is_parrot_owned_image("python.exe"));
+        assert!(is_parrot_owned_image("Python.exe")); // case-insensitive
+        assert!(is_parrot_owned_image("PYTHONW.EXE"));
+        assert!(is_parrot_owned_image("uv.exe"));
+        assert!(!is_parrot_owned_image("chrome.exe"));
+        assert!(!is_parrot_owned_image("node.exe"));
+        assert!(!is_parrot_owned_image("")); // unknown/blank is never ours
+    }
+
     #[test]
     fn ok_health_body_accepts_both_spacings() {
         // The sidecar serializes compact JSON, but JSON parsing is

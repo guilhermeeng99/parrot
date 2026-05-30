@@ -37,7 +37,7 @@ The window is a single Tauri WebView ([architecture.md §1](./architecture.md)).
   - **Logo**: `text-heading font-display font-bold tracking-tight text-cloud-whisper` ("Parrot", with a small parrot glyph allowed — decorative, `aria-hidden`).
   - **Local badge**: the DS **Badge** recipe (`rounded-full bg-slate-fill px-2 py-1 text-body font-semibold text-cloud-whisper`) reading **"local"** (Parrot's truth is *runs on your machine, offline*). Static, not a button. It reinforces the local-first promise on every screen.
   - **Nav** (`ml-auto flex gap-2`): three **Pill**s — **Clone · Speak · Settings** — using `pill(active)` from the DS. Active pill `bg-button-yellow text-night-sky`; inactive `bg-slate-fill text-ash-gray hover:text-button-yellow`. This is the whole NavRail; Parrot has no sidebar.
-  - **Right slot**: when an update is available, the small update button (`rounded-full bg-button-yellow px-3 py-1.5 text-body font-semibold text-night-sky transition hover:brightness-105 disabled:opacity-50` + focusRing) reading **"Update to vX.Y.Z"**; while applying, **"Updating…"** + disabled. With no update, a quiet version label `text-body text-ash-gray` showing the installed version (e.g. "v0.0.x"; also surfaced in Settings → Updates, §2.5). Update/version come from the Tauri updater (native concern, [architecture.md §1.2](./architecture.md)), not the sidecar.
+  - **Right slot**: when an update is available, the small update button (`rounded-full bg-button-yellow px-3 py-1.5 text-body font-semibold text-night-sky transition hover:brightness-105 disabled:opacity-50` + focusRing) reading **"Update to vX.Y.Z"**; while applying, **"Updating…"** + disabled. With no update, a quiet version label `text-body text-ash-gray` showing the installed version (e.g. "v0.0.x"). The version + update affordance live here in the header only — there is no Settings Updates card (§2.5). Update/version come from the Tauri updater (native concern, [architecture.md §1.2](./architecture.md)), not the sidecar.
 
 - **Main** — `max-w-[1000px] mx-auto px-6 py-12`, on `deep-space` body. Each screen optionally opens with a centered header (`text-display-sm font-display font-bold tracking-tight text-cloud-whisper` title + `text-body-lg text-ash-gray` description, `max-w-xl mx-auto`), then a single column of **Card**s with `gap-6`. ~40px vertical section rhythm.
 
@@ -168,16 +168,12 @@ Owner: [voice-profiles.md](./voice-profiles.md). Opened from a VoiceCard. A sing
 
 ### 2.5 — Settings
 
-Owner: [settings.md](./settings.md). Five cards, each its own group, in one column: **Appearance**, **Engine status**, **Updates**, **Hugging Face token**, **Data folder**. Sidecar-backed routes are loopback-gated; Appearance, Updates, and Data folder never touch the sidecar (Updates and Data folder are native/Tauri concerns).
+Owner: [settings.md](./settings.md). Three cards, each its own group, in one column: **Engine status**, **Hugging Face token**, **Data folder**. Appearance is a fixed dark theme with nothing to configure, so it surfaces no card; the installed version + update action live in the app header (§1.1), not a Settings **Updates** card. Sidecar-backed routes are loopback-gated; the Data folder card never touches the sidecar (it is a native/Tauri concern).
 
-- **Appearance** Card:
-  - In V1 this is informational: copy "Parrot uses a single dark theme. A light-section rhythm is on the roadmap." No theme toggle, no zoom control (both backlog per scope locks, §0). The Card still exists so the group is discoverable when the light-section rhythm lands. (Appearance prefs remain frontend-local, [settings.md §2](./settings.md); V1 simply pins `theme=dark` and ships no control.)
 - **Engine status** Card (read-only):
   - The **Engine status label** sources `GET /engine/status` → `{"active":"omnivoice","device":"<id>"}`. The `device` field is one of `cuda`/`cpu`. Render: a **Badge** "Engine: OmniVoice" + a device line "Running on **{device_label or device}**" mapping the device to friendly text ("NVIDIA GPU (CUDA)", "CPU — slower but works"). One fixed engine, **no picker** ([settings.md Rule 1](./settings.md)).
   - While the sidecar is still starting, a `ash-gray` "Engine starting…" placeholder with a Spinner — the rest of Settings stays interactive ([settings.md Edge Cases](./settings.md)).
   - A quiet link "View backend log" (opens the rotating `backend.log` via the native shell) — the only diagnostics affordance; there is no Logs tab ([settings.md Non-goals](./settings.md)).
-- **Updates** Card (native / Tauri-only):
-  - Shows **"Installed version v{appVersion}"** (the same version surfaced in the header right slot, §1.1) and a check/apply-update affordance: a **"Check for updates"** action that, when an update is available, reads **"Update to vX.Y.Z"** and applies it (and **"Updating…"** + disabled while applying) — the same Tauri-updater flow as the header button. With no update, a quiet "You're on the latest version." Update/version come from the Tauri updater (native concern, [architecture.md §1.2](./architecture.md)), not the sidecar.
 - **Hugging Face token** Card (optional):
   - Copy: "Only needed to download a *gated* voice model. The default Parrot voice needs no token." — keeps it honestly optional ([settings.md Rule 2](./settings.md)).
   - **Field** "Token" → a password-style text input (DS recipe, `type=password` with a show/hide toggle), helper showing the **masked** current value `hf_…{last3}` and the cascade state:
@@ -186,7 +182,7 @@ Owner: [settings.md](./settings.md). Five cards, each its own group, in one colu
     - `absent` → `ash-gray` "No token — gated downloads are disabled."
     - `source: env` → read-only chip "Set via HF_TOKEN environment variable" (power-user override; field disabled, [settings.md read model](./settings.md)).
   - **PrimaryButton** "Save token" (`POST`), a secondary **"Test now"** (forces re-validate), and a **"Clear"** (`DELETE`). The raw token is never echoed back — only `masked`.
-  - Sidecar-down error ([settings.md Edge](./settings.md)): "Engine not running — can't save the token yet." + retry. Appearance is unaffected (it never calls the sidecar).
+  - Sidecar-down error ([settings.md Edge](./settings.md)): "Engine not running — can't save the token yet." + retry. The rest of Settings is unaffected (it never calls the sidecar).
 - **Data folder** Card (native / Tauri-only):
   - Shows the resolved data-dir path (`parrot_data/` under `%APPDATA%\Parrot\…`, [../../CLAUDE.md](../../CLAUDE.md) Data Model) in muted `font-mono text-body`, plus an **"Open data folder"** button that reveals it in Explorer via the native shell. Tauri-only — hidden when running the bare web UI (no native shell).
 
@@ -305,10 +301,10 @@ The DS guarantees the primitives (focus rings, contrast, hit targets); this sect
   - *Clone*: mode toggle → capture control (mic/dropzone) → captured AudioPlayer → name → ref_text → language → Save. Library grid is reachable after the form; each VoiceCard is a single tab-stop opening detail, with its quick-action as a nested stop.
   - *Speak*: TextComposer (autofocus on screen enter) → Voice → Language → Speed → Advanced disclosure → Speak. Result Card (AudioPlayer → Download → Lock) follows; History rows last.
   - *Profile detail*: name/rename → test AudioPlayer → metadata Fields → Lock/Unlock → Delete (Delete is last and requires a confirm step so it's never the accidental default).
-  - *Settings*: Appearance → Engine status (View backend log) → Updates (Check / apply update) → token Field → Save/Test/Clear → Data folder (Open data folder).
+  - *Settings*: Engine status (View backend log) → token Field → Save/Test/Clear → Data folder (Open data folder).
 - **Keyboard flows.** Enter submits the active primary action (Save voice / Speak / Save token) when its precondition holds; it does **not** trigger destructive actions. `Esc` closes the profile-detail sheet and any confirm dialog. The AudioPlayer scrubber is fully keyboard-seekable (§3). Disclosures (`Advanced`, `Show details`) are `<button aria-expanded>` toggling a region.
 - **Live regions.** The download ProgressBar uses `aria-live="polite"` on a coarse status ("Downloading — 38%", updated at intervals, not every byte). The model-loading pill and synthesis state changes announce once per transition. Error banners are `role="alert"` so a screen reader hears the actionable message immediately. Token values are never placed in any live region.
-- **Engine-down is not a dead end.** When the sidecar is unreachable, controls that need it are disabled with an explanatory label ("Engine starting…"), focus is not trapped, and Settings/Appearance remain operable — consistent with [architecture.md §4](./architecture.md) and [settings.md Edge Cases](./settings.md).
+- **Engine-down is not a dead end.** When the sidecar is unreachable, controls that need it are disabled with an explanatory label ("Engine starting…"), focus is not trapped, and Settings remains operable — consistent with [architecture.md §4](./architecture.md) and [settings.md Edge Cases](./settings.md).
 
 ---
 
