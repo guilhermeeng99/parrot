@@ -2,26 +2,31 @@
 
 The clone-time speech-to-text that fills `ref_text` (transcription.md). This
 service owns everything that does NOT need the model loaded: the static catalog,
-the torch-less status snapshot, and the download state machine (SSE progress,
-60 s cooldown, retry/backoff, sha256 verify) — mirroring `setup_manager`. The
+the torch-less status snapshot, and the Whisper single-file download. The download
+choreography (SSE progress, 60 s cooldown, retry/backoff, per-download replay
+reset) is the shared `DownloadOrchestrator`, the same one `setup_manager` uses;
+only `_fetch_model` (stream + sha256-verify the `.pt`) is Whisper-specific. The
 actual decode + inference is delegated to `asr_manager` (the ONE ASR engine
 boundary), so this module — and the test suite — import no torch/whisper/av.
 
-The download itself (`_fetch_model`) is indirected exactly like
-`setup_manager._run_snapshot`, so tests exercise the status/cooldown/event logic
-without a real multi-GB network download.
+`_fetch_model` is indirected exactly like `setup_manager._run_snapshot`, so tests
+exercise the status/cooldown/event logic without a real multi-GB network download.
 """
 
 import logging
 import os
-import threading
-import time
+
+# `threading` / `time` are imported so tests can patch threading.Thread / time.sleep
+# on this module to reach the shared worker (the patch is module-global; see
+# download_orchestrator). They are otherwise exercised through the orchestrator.
+import threading  # noqa: F401  (patched by tests)
+import time  # noqa: F401  (patched by tests)
 from pathlib import Path
 
 from ..core import device, paths
 from ..core.logging import redact
-from ..core.sse_broadcast import Broadcaster, keepalive_stream
 from . import asr_manager
+from .download_orchestrator import DownloadOrchestrator
 from .errors import ServiceError
 
 log = logging.getLogger(__name__)
@@ -46,21 +51,6 @@ _LANG_CODES = {
     "german": "de", "italian": "it", "dutch": "nl", "russian": "ru",
     "chinese": "zh", "japanese": "ja", "korean": "ko", "hindi": "hi", "arabic": "ar",
 }
-
-COOLDOWN_S = 60.0
-_MAX_RETRIES = 3
-
-_last_failure: dict[str, float] = {}  # model_id -> epoch seconds of last failure
-_active: set[str] = set()
-_active_lock = threading.Lock()
-
-# Dedicated download bus (one per progress-broadcast surface, like setup_manager's).
-_bus = Broadcaster(replay_maxlen=50)
-
-
-def bind_loop(loop) -> None:
-    """Called from the app lifespan so the download worker thread can publish SSE."""
-    _bus.bind_loop(loop)
 
 
 # ---------------------------------------------------------------------------
@@ -105,14 +95,8 @@ def _lang_code(language: str | None) -> str | None:
 
 
 # ---------------------------------------------------------------------------
-# Download (mirrors setup_manager: SSE progress, cooldown, retry/backoff)
+# Download (Whisper-specific fetch; choreography is the shared orchestrator)
 # ---------------------------------------------------------------------------
-def _event(model: str, phase: str, **extra) -> dict:
-    base = {"model": model, "filename": "", "downloaded": 0, "total": 0, "pct": 0.0, "phase": phase}
-    base.update(extra)
-    return base
-
-
 def _fetch_model(model_id: str) -> None:
     """Stream the single-file `.pt` from openai-whisper's own (authoritative) URL,
     verify its embedded sha256, and atomically rename into place. Indirected for
@@ -143,12 +127,12 @@ def _fetch_model(model_id: str) -> None:
                 sha.update(chunk)
                 downloaded += len(chunk)
                 pct = round(downloaded / total, 4) if total > 0 else 0.0
-                _bus.publish(
-                    _event(
-                        model_id, "progress",
-                        filename=f"{model_id}.pt",
-                        downloaded=downloaded, total=total, pct=pct,
-                    )
+                _downloads.publish_progress(
+                    model_id,
+                    filename=f"{model_id}.pt",
+                    downloaded=downloaded,
+                    total=total,
+                    pct=pct,
                 )
     if expected_sha and sha.hexdigest() != expected_sha:
         tmp.unlink(missing_ok=True)
@@ -156,64 +140,37 @@ def _fetch_model(model_id: str) -> None:
     tmp.replace(dest)
 
 
-def _download_worker(model_id: str) -> None:
-    _bus.publish(_event(model_id, "install_start"))
-    _bus.publish(_event(model_id, "resolving"))
-    try:
-        last_error: Exception | None = None
-        for attempt in range(1, _MAX_RETRIES + 1):
-            try:
-                _fetch_model(model_id)
-                last_error = None
-                break
-            except Exception as e:  # transient network/OSError → backoff + retry
-                last_error = e
-                if attempt < _MAX_RETRIES:
-                    _bus.publish(
-                        _event(model_id, "install_retry", attempt=attempt, error=redact(str(e)))
-                    )
-                    time.sleep(min(2**attempt, 8))
-        if last_error is not None:
-            raise last_error
-        _bus.publish(_event(model_id, "install_done", pct=1.0))
-    except Exception as e:
-        _last_failure[model_id] = time.time()
-        _bus.publish(_event(model_id, "install_error", error=redact(str(e))))
-        log.warning("Whisper model download failed for %s: %s", model_id, redact(str(e)))
-    finally:
-        with _active_lock:
-            _active.discard(model_id)
+# The shared download state machine, wired to the Whisper checkpoint specifics. The
+# fetch/known/present callables are late-bound thunks so tests that monkeypatch
+# `_fetch_model` / `_is_present` still take effect inside the worker.
+_downloads = DownloadOrchestrator(
+    id_key="model",
+    known_ids=lambda: _known_ids(),
+    is_present=lambda model_id: _is_present(model_id),
+    fetch=lambda model_id: _fetch_model(model_id),
+    unknown_message=lambda model_id: f"Unknown transcription model: '{model_id}'.",
+)
+
+# Module-level aliases preserve the public surface (router) and the test surface
+# (which patches `_bus.publish` / `_fetch_model` and reads `_active` / `_last_failure`).
+_bus = _downloads._bus
+_active = _downloads._active
+_last_failure = _downloads._last_failure
+_download_worker = _downloads.worker
+
+
+def bind_loop(loop) -> None:
+    """Called from the app lifespan so the download worker thread can publish SSE."""
+    _downloads.bind_loop(loop)
 
 
 def start_download(model_id: str) -> dict:
-    if model_id not in _known_ids():
-        raise ServiceError(400, f"Unknown transcription model: '{model_id}'.")
-
-    last = _last_failure.get(model_id)
-    if last is not None:
-        remaining = COOLDOWN_S - (time.time() - last)
-        if remaining > 0:
-            raise ServiceError(429, f"That download just failed — retry in {int(remaining) + 1}s.")
-
-    if _is_present(model_id):  # already downloaded → immediate done (no thread)
-        _bus.publish(_event(model_id, "install_done", pct=1.0))
-        return {"status": "download_started", "model": model_id}
-
-    with _active_lock:
-        if model_id not in _active:
-            _active.add(model_id)
-            threading.Thread(target=_download_worker, args=(model_id,), daemon=True).start()
-    return {"status": "download_started", "model": model_id}
-
-
-def _is_terminal(event: dict) -> bool:
-    return event.get("phase") in ("install_done", "install_error")
+    return _downloads.start(model_id)
 
 
 def download_stream():
-    """Async SSE generator: one `data:` line per event, keepalive on idle, STOP
-    after a terminal install_done/install_error (shared fan-out helper)."""
-    return keepalive_stream(_bus, is_terminal=_is_terminal)
+    """Async SSE generator for the Whisper model download (terminal-closing)."""
+    return _downloads.stream()
 
 
 # ---------------------------------------------------------------------------
@@ -263,7 +220,4 @@ def transcribe(audio_bytes: bytes, filename: str | None, model_id: str, language
 
 
 def _reset_for_tests() -> None:
-    _last_failure.clear()
-    with _active_lock:
-        _active.clear()
-    _bus.reset()
+    _downloads.reset_for_tests()

@@ -46,7 +46,7 @@ cd sidecar && uv sync --extra engine && cd ..
 # Frontend + shell
 cd frontend && bun install
 bun run tauri dev          # dev: Svelte UI + Rust shell + Python sidecar
-bun run tauri build        # bundle the Windows MSI (needs WiX; emits Parrot_<ver>_x64_en-US.msi)
+bun run tauri build        # bundle the Windows installers: NSIS Parrot_<ver>_x64-setup.exe + Parrot_<ver>_x64_en-US.msi (the MSI needs WiX)
 ```
 
 The first launch bootstraps a Python venv and downloads the voice model (~hundreds of MB) once, then works offline forever. The updater key is already set up — the real minisign keypair has been generated; the public key (`plugins.updater.pubkey` in `frontend/src-tauri/tauri.conf.json`) is committed and the private key lives in CI secrets. For a local dev build, drop a pinned `uv.exe` at `frontend/src-tauri/binaries/uv-x86_64-pc-windows-msvc.exe` (the binary is gitignored; CI fetches a pinned `uv` automatically).

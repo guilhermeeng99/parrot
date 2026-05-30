@@ -85,6 +85,13 @@ describe("openTtsStream connection lifecycle", () => {
     stream.close();
     expect(FakeWebSocket.last?.closed).toBe(true);
   });
+
+  it("routes a POST-open transport error to onError (steady-state handler swap)", async () => {
+    const onError = vi.fn();
+    await open({ onError }); // open succeeds → onerror swapped to the live handler
+    FakeWebSocket.last?.fireError(); // a later transport failure
+    expect(onError).toHaveBeenCalledWith("The streaming connection failed.");
+  });
 });
 
 describe("incoming frames", () => {

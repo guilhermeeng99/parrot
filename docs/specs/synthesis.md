@@ -123,6 +123,18 @@ Clears all history. Deletes each row's output file from `parrot_data/outputs/` (
 
 Deletes one history row and its output file (path-validated; missing file ignored). Returns `{"deleted": true}`. The UI re-fetches `GET /history` afterward to drop the removed row.
 
+### `GET /history/{id}/audio`
+
+Serves a past generation's WAV (`audio/wav`) so the History list can replay it in-app. `404` if the row or its file is missing.
+
+### `GET /history/{id}/audio.mp3`
+
+The same clip re-encoded to MP3 (`audio/mpeg`) for the user's **download/export** (smaller, shareable) — in-app playback stays WAV; only the exported file is MP3. The re-encode is in memory (no MP3 written to disk). `404` if the row or its file is missing.
+
+### `POST /audio/mp3`
+
+Stateless export transcode: body is raw WAV bytes (`Content-Type: audio/wav`), returns the same audio as MP3 (`audio/mpeg`). The Speak screen uses this to export a **fresh result** straight from the WAV bytes it still holds in memory, so an export never depends on a history row (which the user may have already cleared). `400` on empty / undecodable input. No DB, no model — just `soundfile`.
+
 ### `GET /engine/status`
 
 The single engine/device endpoint. Returns `{"active":"omnivoice","device":"<id>"}` where `device` is one of `cuda` or `cpu` (an optional human label may be added as `device_label`). Parrot ships a single fixed engine — there is no engine-switch endpoint and no backends array. The synthesis loading state machine reads model/load status from this endpoint.
@@ -245,6 +257,7 @@ While the store is `submitting`, the Speak UI shows a **real %-complete bar** in
 | `parrot_data/parrot.db` → `generation_history` | `POST /generate` (insert), `GET/DELETE /history`, `DELETE /history/{id}` | One row inserted per success; read newest-50; deleted on clear. |
 | `parrot_data/parrot.db` → `voice_profiles` | `POST /generate`, `WS /ws/tts` | Read-only during [resolution](#profile-resolution). |
 | `parrot_data/outputs/<id>.wav` | `POST /generate` (write), `DELETE /history*` (remove) | 24 kHz WAV written via the audio-IO save path; deleted when its history row is deleted. |
+| MP3 export (no file written) | `GET /history/{id}/audio.mp3`, `POST /audio/mp3` | The WAV is re-encoded to MP3 **in memory** via `soundfile` for download/export; no MP3 is persisted to disk. |
 | `parrot_data/voices/<file>` | `POST /generate`, `WS /ws/tts` | Read-only: resolved `ref_audio_path` / `locked_audio_path` for a profile. |
 | Temp dir | `POST /generate` (inline `ref_audio` only) | Transient `.wav`; deleted after the request. |
 | In-memory model + `_gpu_pool` | `POST /generate`, `WS /ws/tts` | Lazy-loaded model on the GPU thread pool; idle-unloaded after the configured timeout to free VRAM. |

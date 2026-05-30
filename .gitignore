@@ -32,6 +32,12 @@ Thumbs.db
 .vscode/
 *.log
 
+# Playwright e2e artifacts (browsers live in a global cache, not the repo)
+test-results/
+playwright-report/
+blob-report/
+**/.last-run.json
+
 # Claude Code session/workflow artifacts
 .claude/
 

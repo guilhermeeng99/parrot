@@ -93,7 +93,7 @@ All routes loopback-only and unprefixed, like the rest of the sidecar ([ipc-cont
 | `GET` | `/transcribe/status` | — | `TranscribeStatus` | — |
 | `POST` | `/transcribe/download` | json: `{ model }` | `{ status: "download_started", model }` | `400` unknown model; `429` within 60 s of a failed download |
 | `GET` | `/transcribe/download-stream` | — | `text/event-stream` of `TranscribeDownloadEvent` | — |
-| `POST` | `/transcribe` | form: `ref_audio`* (file), `model`, `language` | `{ text, language, model }` | `400` unknown model; `409` model not downloaded; `415` unsupported audio ext; `500` decode/engine failure |
+| `POST` | `/transcribe` | form: `ref_audio`* (file), `model`, `language` | `{ text, language, model }` | `400` unknown model **or empty audio**; `409` model not downloaded; `415` unsupported audio ext; `500` decode/engine failure |
 
 ```ts
 // frontend/src/lib/api/types.ts — mirror field-for-field.

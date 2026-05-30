@@ -1,6 +1,6 @@
 import { get } from "svelte/store";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { TranscribeDownloadEvent, TranscribeStatus } from "$lib/api";
+import type { TranscribeDownloadEvent, TranscribeResult, TranscribeStatus } from "$lib/api";
 
 // The transcribe store drives model selection, the download SSE machine, and the
 // auto-fire transcription. We mock the IPC layer but keep errMsg/ApiError real.
@@ -125,6 +125,75 @@ describe("downloadModel → verify", () => {
     expect(d.state).toBe("failed");
     expect(d.message).toBe("network reset");
   });
+
+  it("ignores a stale event for a DIFFERENT model (replay isolation)", async () => {
+    const { transcribe, loadTranscribeStatus, downloadModel } = await loadStore();
+    getTranscribeStatus.mockResolvedValueOnce(status());
+    await loadTranscribeStatus(); // selectedModel = large-v3
+    startTranscribeDownload.mockResolvedValue({ status: "download_started", model: "large-v3" });
+    await downloadModel();
+
+    // A replayed terminal event from a PRIOR "small" download must not run verify().
+    emit(ev({ model: "small", phase: "install_done" }));
+    expect(get(transcribe).download.state).toBe("downloading"); // unchanged
+    expect(getTranscribeStatus).toHaveBeenCalledTimes(1); // verify() did NOT re-fetch
+
+    emit(ev({ model: "large-v3", phase: "progress", pct: 0.3 }));
+    expect(get(transcribe).download.pct).toBe(0.3); // our model's events still apply
+  });
+
+  it("tears down the stream and fails when the download POST rejects (e.g. 429)", async () => {
+    const { transcribe, loadTranscribeStatus, downloadModel } = await loadStore();
+    getTranscribeStatus.mockResolvedValueOnce(status());
+    await loadTranscribeStatus();
+    const { ApiError } = await import("$lib/api");
+    startTranscribeDownload.mockRejectedValue(new ApiError("/transcribe/download", 429, "cooldown"));
+    await downloadModel();
+
+    const d = get(transcribe).download;
+    expect(d.state).toBe("failed");
+    expect(d.message).toContain("cooldown");
+    expect(unsub).toHaveBeenCalled(); // SSE torn down so no stray event resurrects it
+  });
+
+  it("cancelDownload drops a mid-download back to idle and unsubscribes", async () => {
+    const { transcribe, loadTranscribeStatus, downloadModel, cancelDownload } = await loadStore();
+    getTranscribeStatus.mockResolvedValueOnce(status());
+    await loadTranscribeStatus();
+    startTranscribeDownload.mockResolvedValue({ status: "download_started", model: "large-v3" });
+    await downloadModel();
+    emit(ev({ phase: "progress", pct: 0.4 }));
+    expect(get(transcribe).download.state).toBe("downloading");
+
+    cancelDownload();
+    expect(get(transcribe).download.state).toBe("idle");
+    expect(unsub).toHaveBeenCalled();
+  });
+});
+
+describe("selectModel / resetTranscription", () => {
+  it("selectModel switches the model and resets download state", async () => {
+    const { transcribe, loadTranscribeStatus, selectModel } = await loadStore();
+    getTranscribeStatus.mockResolvedValueOnce(status());
+    await loadTranscribeStatus();
+    selectModel("small");
+    const s = get(transcribe);
+    expect(s.selectedModel).toBe("small");
+    expect(s.download).toEqual({ state: "idle", pct: null });
+  });
+
+  it("resetTranscription returns the transcription machine to idle", async () => {
+    const { transcribe, loadTranscribeStatus, runTranscription, resetTranscription } =
+      await loadStore();
+    getTranscribeStatus.mockResolvedValue(readyStatus());
+    await loadTranscribeStatus();
+    transcribeReference.mockResolvedValue({ text: "hello", language: "en", model: "large-v3" });
+    await runTranscription(new Blob(["x"]), "x.webm", "Auto");
+    expect(get(transcribe).transcription.state).toBe("done");
+
+    resetTranscription();
+    expect(get(transcribe).transcription.state).toBe("idle");
+  });
 });
 
 describe("runTranscription", () => {
@@ -160,6 +229,30 @@ describe("runTranscription", () => {
     const out = await runTranscription(new Blob(["x"]), "ref.webm", "Auto");
     expect(out).toBeNull();
     expect(get(transcribe).transcription.state).toBe("error");
+  });
+
+  it("discards a stale result so a slower earlier clip can't clobber a newer one", async () => {
+    const { transcribe, loadTranscribeStatus, runTranscription } = await loadStore();
+    getTranscribeStatus.mockResolvedValue(readyStatus());
+    await loadTranscribeStatus();
+
+    // Two overlapping calls; arrange for the FIRST (older) to resolve LAST.
+    let resolveA!: (v: TranscribeResult) => void;
+    let resolveB!: (v: TranscribeResult) => void;
+    transcribeReference
+      .mockImplementationOnce(() => new Promise<TranscribeResult>((r) => (resolveA = r)))
+      .mockImplementationOnce(() => new Promise<TranscribeResult>((r) => (resolveB = r)));
+
+    const pA = runTranscription(new Blob(["a"]), "a.webm", "Auto");
+    const pB = runTranscription(new Blob(["b"]), "b.webm", "Auto");
+
+    resolveB({ text: "newer", language: "en", model: "large-v3" });
+    resolveA({ text: "older", language: "en", model: "large-v3" });
+    const [a, b] = await Promise.all([pA, pB]);
+
+    expect(b).toBe("newer");
+    expect(a).toBeNull(); // older result superseded → discarded, not written
+    expect(get(transcribe).transcription.text).toBe("newer");
   });
 });
 

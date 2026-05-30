@@ -4,7 +4,6 @@
     EFFECT_PRESETS,
     type GenerateParams,
     historyAudioMp3Bytes,
-    historyAudioMp3Url,
     historyAudioUrl,
     inTauri,
     saveAudioDialog,
@@ -98,47 +97,42 @@
     a.click();
   }
 
-  // Export a clip as MP3 by its history id — the in-app pipeline is WAV, but the
-  // sidecar re-encodes to MP3 (smaller, shareable) at `/history/{id}/audio.mp3`.
-  // Both the fresh result and a History row share this one path. In Tauri the
-  // bytes go through the OS save dialog; in a dev browser we anchor-download the
-  // URL directly (the <a download> filename hint is only honored same-origin, so
-  // `bun run dev` may name the file from the URL).
-  async function downloadAudio(id: string, label: string) {
+  // One MP3 export path for both the fresh result and a History row (the in-app
+  // pipeline is WAV; the sidecar re-encodes to MP3 — smaller, shareable). In Tauri
+  // the bytes go through the OS "Save As" dialog; in a dev browser we blob-download
+  // them and revoke the object URL after the click so it doesn't leak. Byte
+  // resolution runs INSIDE the try so a fetch/transcode failure surfaces as a toast.
+  async function exportMp3(filename: string, resolveBytes: () => Promise<Uint8Array>) {
     try {
-      const filename = downloadName(id, label);
+      const bytes = await resolveBytes();
       if (inTauri()) {
-        const path = await saveAudioDialog(filename, await historyAudioMp3Bytes(id));
+        const path = await saveAudioDialog(filename, bytes);
         if (path) toasts.success("Saved");
       } else {
-        anchorDownload(filename, await historyAudioMp3Url(id));
+        // Copy into a fresh ArrayBuffer-backed view so the Blob part is a concrete
+        // Uint8Array<ArrayBuffer> (a bare Uint8Array's buffer may be a SharedArrayBuffer).
+        const url = URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: "audio/mpeg" }));
+        anchorDownload(filename, url);
+        setTimeout(() => URL.revokeObjectURL(url), 0); // free after the anchor click
       }
     } catch (e) {
       toasts.error(e instanceof Error ? e.message : String(e));
     }
   }
 
-  // The fresh result exports straight from the WAV bytes still in memory (no
-  // history-row dependency — the user may have cleared History). Transcoded to
-  // MP3 by the stateless /audio/mp3 endpoint.
-  async function download() {
+  // A History row exports by id via `/history/{id}/audio.mp3`; the fresh result
+  // exports straight from the WAV bytes still in memory (no history-row dependency
+  // — the user may have cleared History) via the stateless /audio/mp3 endpoint.
+  const downloadAudio = (id: string, label: string) =>
+    exportMp3(downloadName(id, label), () => historyAudioMp3Bytes(id));
+
+  function download() {
     const r = $synthesis.result;
     if (!r) return;
-    try {
-      const filename = downloadName(r.id, text);
-      const mp3 = await transcodeWavToMp3(r.bytes);
-      if (inTauri()) {
-        const path = await saveAudioDialog(filename, mp3);
-        if (path) toasts.success("Saved");
-      } else {
-        anchorDownload(filename, URL.createObjectURL(new Blob([mp3], { type: "audio/mpeg" })));
-      }
-    } catch (e) {
-      toasts.error(e instanceof Error ? e.message : String(e));
-    }
+    exportMp3(downloadName(r.id, text), () => transcodeWavToMp3(r.bytes));
   }
 
-  function relTime(epoch: number): string {
+  function formatTimestamp(epoch: number): string {
     return new Date(epoch * 1000).toLocaleString();
   }
 
@@ -154,6 +148,17 @@
       audioUrlCache.set(id, url);
     }
     return url;
+  }
+
+  // Keep the URL cache in step with the list so a removed row's entry doesn't
+  // linger after its row is gone.
+  function removeRow(id: string) {
+    audioUrlCache.delete(id);
+    deleteRow(id);
+  }
+  function clearHistory() {
+    audioUrlCache.clear();
+    clearAll();
   }
 </script>
 
@@ -294,11 +299,11 @@
                 type="button"
                 class="shrink-0 text-body text-slate-blue hover:text-danger"
                 aria-label="Delete"
-                onclick={() => deleteRow(row.id)}>✕</button
+                onclick={() => removeRow(row.id)}>✕</button
               >
             </div>
             <span class="text-body text-slate-blue">
-              {profileName(row.profile_id)} · {relTime(row.created_at)}
+              {profileName(row.profile_id)} · {formatTimestamp(row.created_at)}
             </span>
             {#await audioUrl(row.id) then url}
               <AudioPlayer
@@ -323,7 +328,7 @@
     <Button
       onclick={() => {
         confirmClear = false;
-        clearAll();
+        clearHistory();
       }}>Delete everything</Button
     >
   </div>

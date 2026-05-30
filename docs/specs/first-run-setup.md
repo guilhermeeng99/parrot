@@ -119,7 +119,6 @@ These only intersect first-run when a download hits a gated repo; the default un
 
 ```
 checking
-  → downloading_uv      (only if no usable uv binary cached)
   → creating_venv       (first run only; venv at parrot_data/.venv)
   → installing_deps     (first run / repair; uv sync, the long pole)
   → starting_backend    (spawned uvicorn; polling /healthz)

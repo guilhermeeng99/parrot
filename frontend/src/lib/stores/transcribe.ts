@@ -42,6 +42,12 @@ export const transcribe = { subscribe: store.subscribe };
 // Only the download SSE needs an unsubscribe handle (like the setup store).
 let unsubscribe: (() => void) | null = null;
 
+// Monotonic id for in-flight transcriptions. A fast re-capture can start a second
+// runTranscription before the first resolves; whichever HTTP response lands LAST
+// would otherwise win and clobber ref_text with a stale (older clip's) transcript.
+// Each call stamps an id and discards its own result if a newer call superseded it.
+let txSeq = 0;
+
 export async function loadTranscribeStatus(): Promise<void> {
   try {
     const status = await getTranscribeStatus();
@@ -90,6 +96,11 @@ export async function downloadModel(): Promise<void> {
 }
 
 function handleEvent(ev: TranscribeDownloadEvent) {
+  // Replay isolation: the download bus is per-service (shared across models) and
+  // replays a small buffer on connect. Ignore any event that isn't for the model
+  // we're downloading, so a PRIOR model's terminal event can't drive THIS
+  // download's machine (belt-and-suspenders with the server-side per-start reset).
+  if (ev.model !== get(store).selectedModel) return;
   if (ev.phase === "install_error") {
     store.update((s) => ({
       ...s,
@@ -153,12 +164,15 @@ export async function runTranscription(
 ): Promise<string | null> {
   const { selectedModel } = get(store);
   if (!selectedModel || !isModelReady(selectedModel)) return null;
+  const seq = ++txSeq;
   store.update((s) => ({ ...s, transcription: { state: "transcribing" } }));
   try {
     const res = await transcribeReference({ audio, filename, model: selectedModel, language });
+    if (seq !== txSeq) return null; // a newer capture superseded this one — discard
     store.update((s) => ({ ...s, transcription: { state: "done", text: res.text } }));
     return res.text;
   } catch (e) {
+    if (seq !== txSeq) return null; // superseded; let the newer call own the state
     const message = errMsg(e);
     store.update((s) => ({ ...s, transcription: { state: "error", message } }));
     toasts.error(message);

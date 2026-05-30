@@ -245,3 +245,71 @@ def test_transcribe_via_api(client, monkeypatch):
     )
     assert res.status_code == 200, res.text
     assert res.json() == {"text": "hello there", "language": "en", "model": "large-v3"}
+
+
+# ---------------------------------------------------------------------------
+# Download integrity + SSE replay isolation (regressions)
+# ---------------------------------------------------------------------------
+def test_fetch_model_rejects_bad_checksum(env, monkeypatch):
+    """CAT-3: a `.pt` whose bytes don't match the sha256 embedded in whisper's URL
+    is rejected and its `.part` is cleaned up — never renamed into place."""
+    import sys
+    import types
+    import urllib.request
+
+    url = "https://openaipublic.azureedge.net/main/whisper/models/deadbeef/small.pt"
+    monkeypatch.setitem(sys.modules, "whisper", types.SimpleNamespace(_MODELS={"small": url}))
+
+    class _Resp:  # minimal urlopen() context-manager stand-in
+        headers = {"Content-Length": "11"}
+
+        def __init__(self):
+            self._sent = False
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self, _n):
+            if self._sent:
+                return b""
+            self._sent = True
+            return b"bogus-bytes"  # sha256 ≠ "deadbeef"
+
+    monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **k: _Resp())
+
+    with pytest.raises(RuntimeError, match="checksum"):
+        svc._fetch_model("small")
+
+    assert not (paths.whisper_models_dir() / "small.pt.part").exists()  # partial cleaned
+    assert not (paths.whisper_models_dir() / "small.pt").exists()  # never landed
+
+
+def test_start_download_resets_replay_bus(env, monkeypatch):
+    """Regression: a PRIOR model's terminal `install_done` lingering in the replay
+    buffer must be cleared by the next `start_download`, so the next model's SSE
+    subscriber can't replay it and spuriously fail (the multi-model picker bug)."""
+    svc._bus.publish({"model": "small", "phase": "install_done", "pct": 1.0})
+    assert any(e.get("phase") == "install_done" for e in list(svc._bus._recent))
+
+    class _DummyThread:
+        def __init__(self, *a, **k):
+            pass
+
+        def start(self):
+            pass
+
+    monkeypatch.setattr(svc.threading, "Thread", _DummyThread)  # don't really download
+    svc.start_download("large-v3")  # different, not-present model
+
+    assert all(e.get("model") != "small" for e in list(svc._bus._recent))
+
+
+def test_download_terminal_predicate(env):
+    is_terminal = svc._downloads._is_terminal
+    assert is_terminal({"phase": "install_done"})
+    assert is_terminal({"phase": "install_error"})
+    assert not is_terminal({"phase": "progress"})
+    assert not is_terminal({"phase": "install_start"})

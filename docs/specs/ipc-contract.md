@@ -49,9 +49,12 @@ Every error response from the sidecar is a FastAPI `HTTPException`, serialized a
 
 | Code | Meaning in Parrot |
 |------|-------------------|
-| `200` | Success (JSON, WAV stream, or SSE). |
-| `400` | Bad input — empty profile name, no editable fields in a PUT, invalid `effect_preset`, validation error from the engine. |
-| `404` | Profile / history row not found. |
+| `200` | Success (JSON, WAV/MP3 stream, or SSE). |
+| `400` | Bad input — empty profile name, no editable fields in a PUT, invalid `effect_preset`, empty/undecodable audio, validation error from the engine. |
+| `403` | Loopback-only endpoint reached from a non-loopback origin (defense-in-depth on the settings / engine / SSE endpoints). |
+| `404` | Profile / history row not found (or its referenced audio file is missing on disk). |
+| `409` | Transcription requested for a model that hasn't been downloaded yet. |
+| `415` | Unsupported audio extension (profile-create `ref_audio` or a transcription clip). |
 | `429` | Model re-download attempted within the 60 s cooldown after a failed download. |
 | `500` | Synthesis or I/O failure; `detail` points the user to logs. |
 
@@ -155,7 +158,7 @@ Live per-step progress for the in-flight synthesis, so the Speak UI shows a real
 
 The engine exposes no native progress hook, so the sidecar counts the model's per-step forward passes in the `generation_progress` service (a worker thread publishes into the event-loop broadcaster, mirroring the `setup_manager` download broadcaster). The Speak UI opens this stream **just before** `POST /generate` so it catches the `start` phase, and closes it on a terminal event / when the request settles; failure to open is non-fatal (the bar falls back to indeterminate). On connect the broadcaster replays a tiny buffer, which may include a prior generation's tail — the store ignores everything until this generation's `start` (see [synthesis.md §Progress](./synthesis.md#progress)).
 
-> Consumed via `EventSource` (like `/setup/download-stream`): `generate.ts` exposes `subscribeGenerationProgress(onEvent)` wrapping `new EventSource(apiUrl('/generate/progress-stream'))` and returns an unsubscribe fn that calls `EventSource.close()`. There is no `onError` arg — `new EventSource` never throws, so a connect failure is non-fatal (the bar stays indeterminate) and surfaces only as `es.onerror`.
+> Consumed via `EventSource` (like `/setup/download-stream`): `generate.ts` exposes `subscribeGenerationProgress(onEvent)` wrapping `new EventSource(await apiUrl('/generate/progress-stream'))` (the loopback base URL resolves async, so `apiUrl` is awaited before the `EventSource` is constructed) and returns an unsubscribe fn that calls `EventSource.close()`. There is no `onError` arg — `new EventSource` never throws, so a connect failure is non-fatal (the bar stays indeterminate) and surfaces only as `es.onerror`.
 
 ---
 
@@ -382,7 +385,7 @@ Parrot ships exactly one TTS engine (`omnivoice`, pure-Python via `transformers`
 interface EngineStatus {
   active: 'omnivoice';                         // single fixed engine, not selectable
   device: 'cuda' | 'cpu';                      // the resolved compute device
-  device_label?: string;                       // optional human label, e.g. "cuda (RTX 4090)"
+  device_label?: string;                       // optional human label, e.g. "GPU (CUDA) — RTX 4090"
 }
 ```
 
@@ -513,7 +516,7 @@ The boot splash drives the bootstrap store (architecture.md §5.1) off these. Th
 - **Client aborts the `/generate` fetch** (user navigates away) → the server logs a disconnect and returns no status (the client is gone); the `AbortController.signal` passed into `generateSpeech` is the cancel path. No history-row guarantee: a row may or may not have been written depending on timing.
 - **`PUT /profiles/{id}` with an all-`null` body** → `400` ("no editable fields"), never a silent no-op.
 - **`PUT` name set to whitespace** → `400` ("A voice profile needs a name.").
-- **Lock against a `history_id` whose audio was already deleted** → `404` ("Audio file not found on disk"); the profile is left unlocked.
+- **Lock against a missing / audio-less `history_id`** → `404` ("History item not found or has no audio."); **lock against a `history_id` whose audio file was already deleted from disk** → `404` ("Audio file not found on disk."). Either way the profile is left unlocked.
 - **Delete a profile in use by history** → succeeds; dependent history rows have `profile_id` nulled (FK preserved), so history survives.
 - **`POST /setup/download` retried after a failure within 60 s** → `429` with seconds-remaining; the wizard must show the cooldown, not spin.
 - **SSE stream idle** → server emits `: keepalive` comment lines every 30 s; the client must ignore comment lines (no `data:`).

@@ -63,7 +63,6 @@ Owner: [first-run-setup.md](./first-run-setup.md). This is the make-or-break scr
 **Boot splash (supervisor-owned, pre-`/healthz`).** Shown while the Rust supervisor brings the sidecar up ([architecture.md §3.1](./architecture.md), [first-run-setup.md §5](./first-run-setup.md)). A single centered **Card** on `cloud-mist`:
 - Logo + **Spinner** (`h-5 w-5 animate-spin rounded-full border-2 border-action-blue/30 border-t-action-blue`) + a stage line in `text-body-lg text-slate-blue`, mapping the supervisor state machine to plain copy:
   - `checking` → "Starting Parrot's engine…"
-  - `downloading_uv` → "Fetching the Python runtime…"
   - `creating_venv` → "Setting up a local environment…"
   - `installing_deps` → "Installing the engine (this is a one-time step, a few minutes)…"
   - `starting_backend` → "Waking the engine…"

@@ -158,7 +158,10 @@ The sidecar exposes a small REST surface (full shapes in [ipc-contract.md](./ipc
 - `GET /profiles/{id}/usage` returns `{ "synth_recent": [≤20 most-recent generation_history rows], "synth_total": int }`.
 
 **History**
-- `GET /history` · `DELETE /history` · `DELETE /history/{id}`
+- `GET /history` · `DELETE /history` · `DELETE /history/{id}` · `GET /history/{id}/audio` (WAV replay) · `GET /history/{id}/audio.mp3` (MP3 export) · `POST /audio/mp3` (stateless WAV→MP3 export of a fresh in-memory result).
+
+**Reference transcription** (clone-time ASR that auto-fills `ref_text`) — see [transcription.md](./transcription.md)
+- `GET /transcribe/status` · `POST /transcribe/download` · `GET /transcribe/download-stream` (download-progress **SSE**) · `POST /transcribe` *(form: `ref_audio` file, `model`, `language`)* → `{ text, language, model }`. This is the **only** ASR surface in Parrot.
 
 **Setup / first-run** — see [first-run-setup.md](./first-run-setup.md)
 - `GET /setup/status` → `{ "models_ready": bool, … }` · `POST /setup/download` (starts the model download) · `GET /setup/download-stream` (download-progress **SSE** stream).
