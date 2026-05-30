@@ -33,7 +33,7 @@ Invariants:
 
 ### 2. Frontend — Appearance (fixed light theme, V1)
 
-Appearance is **not configurable in V1**. Parrot ships exactly one visual system — the Calendly "Sky Blueprint on Bright Paper" light theme (Montserrat type family, action-blue as the single interaction color) — defined and locked in [design-system.md](./design-system.md). There is **no theme toggle and no UI-zoom control** in V1; both are backlog (see [Non-goals](#non-goals)).
+Appearance is **not configurable in V1**. Parrot ships exactly one visual system — the Calendly "Sky Blueprint on Bright Paper" light theme (Montserrat type family, action-blue as the single interaction color) — defined and locked in [design-system.md](./design-system.md). There is **no theme toggle and no UI-zoom control** in V1; both are backlog (see [Non-goals](#non-goals)). Because there is nothing to configure, the Settings screen surfaces **no Appearance card** (Rule 10's "simply omitted") — the theme is just applied. Likewise there is no **Updates** card: the installed version and the "update available" action live in the app header (`+layout.svelte`), which auto-checks on launch, so a separate Settings section would be redundant. The Settings screen's cards are therefore: Engine, Hugging Face token, and Data folder.
 
 ```ts
 // V1: no user-tunable appearance prefs.

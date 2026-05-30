@@ -12,7 +12,6 @@
     setToken,
   } from "$lib/api";
   import { device, loadDevice } from "$lib/stores/device";
-  import { appVersion, applyUpdate, checkUpdate, loadAppVersion, updater } from "$lib/stores/updater";
   import { toasts } from "$lib/stores/toasts";
   import Badge from "../ui/Badge.svelte";
   import Button from "../ui/Button.svelte";
@@ -29,7 +28,6 @@
   onMount(() => {
     loadDevice();
     refreshToken();
-    loadAppVersion();
     if (inTauri()) getAppPaths().then((p) => (paths = p)).catch(() => {});
   });
 
@@ -85,13 +83,6 @@
   </header>
 
   <Card>
-    <h2 class="text-heading font-bold text-midnight-indigo">Appearance</h2>
-    <p class="text-body-lg text-slate-blue">
-      Parrot uses a single light theme. Dark mode is on the roadmap.
-    </p>
-  </Card>
-
-  <Card>
     <h2 class="text-heading font-bold text-midnight-indigo">Engine</h2>
     {#if $device.state === "resolving" || $device.state === "unknown"}
       <div class="flex items-center gap-2 text-slate-blue">
@@ -110,31 +101,6 @@
     {/if}
     {#if inTauri() && paths}
       <Button size="sm" variant="ghost" onclick={viewLog}>View backend log</Button>
-    {/if}
-  </Card>
-
-  <Card>
-    <h2 class="text-heading font-bold text-midnight-indigo">Updates</h2>
-    <p class="text-body-lg text-midnight-indigo">
-      Installed version <strong>v{$appVersion || "—"}</strong>
-    </p>
-    {#if $updater.state === "checking"}
-      <div class="flex items-center gap-2 text-slate-blue">
-        <Spinner size="sm" /> <span>Checking for updates…</span>
-      </div>
-    {:else if $updater.state === "available"}
-      <Badge level="success">Update available: v{$updater.version}</Badge>
-      <Button size="sm" onclick={applyUpdate}>Update now</Button>
-    {:else if $updater.state === "downloading"}
-      <Button size="sm" disabled loading>Downloading update…</Button>
-    {:else if $updater.state === "up_to_date"}
-      <p class="text-body text-slate-blue">You're on the latest version.</p>
-      <Button size="sm" variant="ghost" onclick={checkUpdate}>Check again</Button>
-    {:else if $updater.state === "error"}
-      <p class="text-body text-danger">Couldn't check for updates: {$updater.error}</p>
-      <Button size="sm" variant="ghost" onclick={checkUpdate}>Try again</Button>
-    {:else}
-      <Button size="sm" variant="ghost" onclick={checkUpdate}>Check for updates</Button>
     {/if}
   </Card>
 

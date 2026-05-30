@@ -3,10 +3,12 @@
   import {
     EFFECT_PRESETS,
     type GenerateParams,
-    historyAudioBytes,
+    historyAudioMp3Bytes,
+    historyAudioMp3Url,
     historyAudioUrl,
     inTauri,
     saveAudioDialog,
+    transcodeWavToMp3,
   } from "$lib/api";
   import { loadProfiles, lock, profiles } from "$lib/stores/profiles";
   import { clearAll, deleteRow, history, loadHistory } from "$lib/stores/history";
@@ -78,7 +80,7 @@
   }
 
   // A friendly, filesystem-safe default name: a slug of the spoken text + id
-  // fallback, so saved files are recognizable instead of "<uuid>.wav".
+  // fallback, so saved files are recognizable instead of "<uuid>.mp3".
   function downloadName(id: string, text: string): string {
     const slug = text
       .trim()
@@ -86,17 +88,7 @@
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-+|-+$/g, "")
       .slice(0, 32);
-    return `parrot-${slug || id}.wav`;
-  }
-
-  /** Save a WAV via the native dialog (Tauri) or an anchor (dev browser). In
-   *  Tauri the bytes are written through the OS dialog; in a plain browser we
-   *  anchor-download the `url` directly. NOTE: the <a download> filename hint is
-   *  only honored for same-origin URLs — in `bun run dev` the sidecar is a
-   *  different origin, so the browser may name the file from the URL instead. */
-  async function saveTauriWav(filename: string, bytes: Uint8Array) {
-    const path = await saveAudioDialog(filename, bytes);
-    if (path) toasts.success("Saved");
+    return `parrot-${slug || id}.mp3`;
   }
 
   function anchorDownload(filename: string, url: string) {
@@ -106,27 +98,41 @@
     a.click();
   }
 
-  // Result download: the bytes are already in memory from the generate response.
-  async function download() {
-    const r = $synthesis.result;
-    if (!r) return;
+  // Export a clip as MP3 by its history id — the in-app pipeline is WAV, but the
+  // sidecar re-encodes to MP3 (smaller, shareable) at `/history/{id}/audio.mp3`.
+  // Both the fresh result and a History row share this one path. In Tauri the
+  // bytes go through the OS save dialog; in a dev browser we anchor-download the
+  // URL directly (the <a download> filename hint is only honored same-origin, so
+  // `bun run dev` may name the file from the URL).
+  async function downloadAudio(id: string, label: string) {
     try {
-      const filename = downloadName(r.id, text);
-      if (inTauri()) await saveTauriWav(filename, r.bytes);
-      else anchorDownload(filename, r.url);
+      const filename = downloadName(id, label);
+      if (inTauri()) {
+        const path = await saveAudioDialog(filename, await historyAudioMp3Bytes(id));
+        if (path) toasts.success("Saved");
+      } else {
+        anchorDownload(filename, await historyAudioMp3Url(id));
+      }
     } catch (e) {
       toasts.error(e instanceof Error ? e.message : String(e));
     }
   }
 
-  // History download: outside Tauri, anchor-download the stored WAV URL straight
-  // off the sidecar; inside Tauri, fetch the bytes via the typed client and route
-  // them through the native save dialog.
-  async function downloadHistory(id: string, rowText: string) {
+  // The fresh result exports straight from the WAV bytes still in memory (no
+  // history-row dependency — the user may have cleared History). Transcoded to
+  // MP3 by the stateless /audio/mp3 endpoint.
+  async function download() {
+    const r = $synthesis.result;
+    if (!r) return;
     try {
-      const filename = downloadName(id, rowText);
-      if (inTauri()) await saveTauriWav(filename, await historyAudioBytes(id));
-      else anchorDownload(filename, await historyAudioUrl(id));
+      const filename = downloadName(r.id, text);
+      const mp3 = await transcodeWavToMp3(r.bytes);
+      if (inTauri()) {
+        const path = await saveAudioDialog(filename, mp3);
+        if (path) toasts.success("Saved");
+      } else {
+        anchorDownload(filename, URL.createObjectURL(new Blob([mp3], { type: "audio/mpeg" })));
+      }
     } catch (e) {
       toasts.error(e instanceof Error ? e.message : String(e));
     }
@@ -298,7 +304,7 @@
               <AudioPlayer
                 src={url}
                 downloadable
-                ondownload={() => downloadHistory(row.id, row.text)}
+                ondownload={() => downloadAudio(row.id, row.text)}
               />
             {/await}
           </li>

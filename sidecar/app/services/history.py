@@ -9,6 +9,7 @@ any file op (no path traversal).
 import logging
 
 from ..core import db, paths
+from . import audio_io
 from .errors import ServiceError
 
 log = logging.getLogger(__name__)
@@ -27,6 +28,11 @@ def audio_path_for(history_id: str):
     if safe is None or not safe.exists():
         raise ServiceError(404, "Audio file missing on disk.")
     return safe
+
+
+def audio_mp3_bytes(history_id: str) -> bytes:
+    """The generated clip re-encoded as MP3 (export-as-mp3). 404s like audio_path_for."""
+    return audio_io.wav_file_to_mp3_bytes(audio_path_for(history_id))
 
 
 def _row_to_dict(row) -> dict:

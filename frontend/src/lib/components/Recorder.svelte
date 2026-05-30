@@ -76,11 +76,22 @@
 <div class="flex flex-col items-center gap-3">
   <button
     type="button"
-    class="flex h-16 w-16 items-center justify-center rounded-full bg-action-blue text-2xl text-snow-white transition hover:brightness-105 {recording ? 'parrot-pulse' : ''}"
+    class="flex h-20 w-20 items-center justify-center rounded-full bg-action-blue text-snow-white shadow-sm-2 transition hover:brightness-105 {recording ? 'parrot-pulse' : ''}"
     onclick={() => (recording ? stop() : start())}
     aria-label={recording ? "Stop recording" : "Start recording"}
   >
-    <span aria-hidden="true">{recording ? "■" : "🎙"}</span>
+    {#if recording}
+      <svg viewBox="0 0 24 24" class="h-7 w-7" fill="currentColor" aria-hidden="true">
+        <rect x="6" y="6" width="12" height="12" rx="2" />
+      </svg>
+    {:else}
+      <svg viewBox="0 0 24 24" class="h-9 w-9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect x="9" y="2.5" width="6" height="11" rx="3" />
+        <path d="M5.5 11a6.5 6.5 0 0 0 13 0" />
+        <path d="M12 17.5V21" />
+        <path d="M8.5 21h7" />
+      </svg>
+    {/if}
   </button>
   {#if recording}
     <span class="font-mono text-body text-slate-blue">{fmt(elapsed)}</span>

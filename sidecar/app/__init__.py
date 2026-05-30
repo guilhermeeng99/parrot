@@ -17,8 +17,20 @@ from fastapi.responses import JSONResponse
 from . import config
 from .core import db
 from .core.logging import configure_logging, redact
-from .routers import engine, generate, health, history, profiles, settings, setup, ws
+from .routers import (
+    audio,
+    engine,
+    generate,
+    health,
+    history,
+    profiles,
+    settings,
+    setup,
+    transcribe,
+    ws,
+)
 from .services import generation_progress, model_manager, setup_manager
+from .services import transcribe as transcribe_svc
 from .services.errors import ServiceError
 
 log = logging.getLogger(__name__)
@@ -29,6 +41,7 @@ async def _lifespan(app: FastAPI):
     db.init_db()  # idempotent schema create
     loop = asyncio.get_running_loop()
     setup_manager.bind_loop(loop)  # model-download SSE publish from worker threads
+    transcribe_svc.bind_loop(loop)  # whisper-model-download SSE publish from worker threads
     generation_progress.bind_loop(loop)  # synthesis-progress SSE publish from the GPU thread
     try:
         yield
@@ -83,5 +96,7 @@ def create_app() -> FastAPI:
     app.include_router(history.router)
     app.include_router(setup.router)
     app.include_router(settings.router)
+    app.include_router(transcribe.router)
+    app.include_router(audio.router)
     app.include_router(ws.router)
     return app

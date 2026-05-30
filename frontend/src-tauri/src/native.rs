@@ -60,16 +60,26 @@ pub struct UpdateProgress {
     done: bool,
 }
 
+// Export audio via the OS "Save As" dialog. The command writes whatever bytes it
+// is handed and derives the dialog filter from the suggested filename's extension,
+// so it serves both exports: a generated clip (transcoded to MP3 server-side) and
+// a voice's original reference clip (downloaded as-is in its source format).
 #[tauri::command]
 pub fn save_audio_dialog(
     app: AppHandle,
     default_name: String,
-    wav_bytes: Option<Vec<u8>>,
+    audio_bytes: Option<Vec<u8>>,
 ) -> Result<Option<String>, String> {
+    let ext = std::path::Path::new(&default_name)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("mp3")
+        .to_owned();
+    let label = format!("{} audio", ext.to_uppercase());
     let chosen = app
         .dialog()
         .file()
-        .add_filter("WAV audio", &["wav"])
+        .add_filter(&label, &[ext.as_str()])
         .set_file_name(&default_name)
         .blocking_save_file();
 
@@ -77,7 +87,7 @@ pub fn save_audio_dialog(
         return Ok(None); // user cancelled
     };
     let path = file_path.into_path().map_err(|e| e.to_string())?;
-    if let Some(bytes) = wav_bytes {
+    if let Some(bytes) = audio_bytes {
         std::fs::write(&path, bytes).map_err(|e| e.to_string())?;
     }
     Ok(Some(path.to_string_lossy().into_owned()))

@@ -1,4 +1,4 @@
-import { apiBase, apiDelete, apiJson, apiPost, apiPut } from "./client";
+import { apiBase, apiDelete, apiFetch, apiJson, apiPost, apiPut } from "./client";
 import type { ProfileUsage, VoiceProfile } from "./types";
 
 export const listProfiles = () => apiJson<VoiceProfile[]>("/profiles");
@@ -43,6 +43,13 @@ export const getProfileUsage = (id: string) => apiJson<ProfileUsage>(`/profiles/
 /** Full URL to a profile's representative audio (for an <audio> element). */
 export const profileAudioUrl = (id: string) =>
   apiBase().then((base) => `${base}/profiles/${id}/audio`);
+
+/** The profile's original reference clip as raw bytes (GET /profiles/{id}/audio),
+ *  for downloading it to disk in its source format. Throws ApiError on failure. */
+export async function profileAudioBytes(id: string): Promise<Uint8Array> {
+  const res = await apiFetch(`/profiles/${id}/audio`);
+  return new Uint8Array(await res.arrayBuffer());
+}
 
 export function lockProfile(id: string, historyId: string, seed?: number | null) {
   const fd = new FormData();

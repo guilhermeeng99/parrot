@@ -103,7 +103,7 @@
       type="button"
       class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-platinum-tint text-action-blue transition hover:border-action-blue hover:bg-action-blue/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-action-blue"
       onclick={ondownload}
-      title="Download .wav"
+      title="Download .mp3"
       aria-label="Download audio"
     >
       <svg

@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 from app import create_app
 from app.core import db, device
 from app.services import hf_token, model_manager, setup_manager
+from app.services import transcribe as transcribe_svc
 
 # TestClient's default peer is "testclient", which the loopback gate rejects.
 LOOPBACK_PEER = ("127.0.0.1", 50000)
@@ -46,6 +47,7 @@ def env(tmp_path, monkeypatch):
     db._reset_for_tests()
     device._reset_cache()
     setup_manager._reset_for_tests()
+    transcribe_svc._reset_for_tests()
     hf_token._invalidate_cache()
     model_manager._set_for_tests(FakeBackend())
     yield tmp_path

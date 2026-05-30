@@ -5,10 +5,39 @@ real WAV on disk and reports duration. Kept light (numpy + soundfile) so the
 generate path's I/O is testable without the ML stack.
 """
 
+import io
 from pathlib import Path
 
 import numpy as np
 import soundfile as sf
+
+
+def wav_file_to_mp3_bytes(path: Path) -> bytes:
+    """Re-encode a WAV file on disk to MP3 bytes (History export-as-mp3 path).
+
+    Parrot's pipeline is WAV end-to-end (24 kHz model output), but a user exporting
+    a clip wants a small, shareable file. soundfile's bundled libsndfile (>= 1.1)
+    encodes MP3 directly, so no extra encoder dependency (LAME/ffmpeg) is needed —
+    this stays in the light `soundfile` dep, off the heavy engine extra."""
+    data, sr = sf.read(str(path), dtype="float32", always_2d=False)
+    return _encode_mp3(data, sr)
+
+
+def wav_bytes_to_mp3_bytes(data: bytes) -> bytes:
+    """Re-encode in-memory WAV bytes to MP3 bytes (stateless export of a FRESH
+    result, which lives only in memory and may have no history row — e.g. after the
+    user cleared History). Raises ValueError on undecodable input."""
+    try:
+        samples, sr = sf.read(io.BytesIO(data), dtype="float32", always_2d=False)
+    except Exception as e:
+        raise ValueError(f"not decodable WAV audio: {e}") from e
+    return _encode_mp3(samples, sr)
+
+
+def _encode_mp3(samples, sample_rate: int) -> bytes:
+    buf = io.BytesIO()
+    sf.write(buf, samples, sample_rate, format="MP3")
+    return buf.getvalue()
 
 
 def save_wav(samples: np.ndarray, sample_rate: int, path: Path) -> None:

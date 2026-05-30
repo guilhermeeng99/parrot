@@ -68,7 +68,11 @@ BR-4   ref_text, when supplied, should be the verbatim transcript of the
        reference audio. The model prepends it to the synthesis text so the
        reference tokens and text tokens are aligned; an accurate transcript
        sharpens prosody and timbre transfer. A wrong transcript degrades the
-       clone — better empty than wrong.
+       clone — better empty than wrong. Parrot can fill ref_text AUTOMATICALLY by
+       transcribing the captured clip (optional, opt-in by model download) — the
+       result is editable and follows the same "better empty than wrong" rule.
+       The transcription contract (engine, model catalog, IPC) lives in
+       [transcription.md](./transcription.md); it writes nothing but this field.
 
 BR-5   A profile is reusable: one capture, unlimited generations. Synthesis
        references the profile by profile_id (see synthesis.md), so re-cloning
@@ -239,7 +243,10 @@ EDGE-7  Duplicate name. Allowed by the backend (BR-8). The UI SHOULD warn
 
 EDGE-8  Missing ref_text. Allowed (defaults to ''). The clone still works; the
         engine handles the empty-transcript case internally. Encourage, but
-        never require, a transcript (BR-4). "Better empty than wrong."
+        never require, a transcript (BR-4) — the auto-transcription helper
+        (transcription.md) is the primary "encourage" path: it seeds the field
+        from the clip so the common case is filled-and-correct, but the user can
+        still clear it. "Better empty than wrong."
 
 EDGE-9  Reference file deleted out-of-band. If voices/<id><ext> is missing at
         read/synthesis time, the reference-audio fetch returns 404 ("Audio file

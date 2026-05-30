@@ -1,7 +1,7 @@
 """`/history` — the synthesis log (synthesis.md §/history)."""
 
 from fastapi import APIRouter
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 
 from ..services import history as svc
 
@@ -17,6 +17,13 @@ def list_history() -> list[dict]:
 def history_audio(history_id: str):
     """Serve a past generation's WAV so the History list can replay it."""
     return FileResponse(str(svc.audio_path_for(history_id)), media_type="audio/wav")
+
+
+@router.get("/{history_id}/audio.mp3")
+def history_audio_mp3(history_id: str):
+    """Serve a past generation re-encoded as MP3 (the export-as-mp3 path). Playback
+    stays WAV (`/audio`); this is only for the user's downloaded file."""
+    return Response(content=svc.audio_mp3_bytes(history_id), media_type="audio/mpeg")
 
 
 @router.delete("")

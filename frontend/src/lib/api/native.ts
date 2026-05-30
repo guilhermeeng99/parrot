@@ -16,11 +16,12 @@ async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T
   }
 }
 
-/** Native "Save As" → returns the chosen path, or null if cancelled. */
-export const saveAudioDialog = (defaultName: string, wavBytes?: Uint8Array) =>
+/** Native "Save As" → returns the chosen path, or null if cancelled. The bytes are
+ *  the exported audio (Parrot exports MP3); the command writes them verbatim. */
+export const saveAudioDialog = (defaultName: string, audioBytes?: Uint8Array) =>
   invoke<string | null>("save_audio_dialog", {
     defaultName,
-    wavBytes: wavBytes ? Array.from(wavBytes) : undefined,
+    audioBytes: audioBytes ? Array.from(audioBytes) : undefined,
   });
 
 export const revealInFolder = (path: string) => invoke<void>("reveal_in_folder", { path });

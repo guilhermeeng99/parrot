@@ -18,7 +18,10 @@ Parrot is an independent, **Apache-2.0** open-source app built on the same Apach
 **Explicit non-goals** (do not add these without changing this doc first):
 
 - Video dubbing, lip-sync, subtitle handling
-- Real-time dictation / speech-to-text (ASR)
+- Real-time dictation / general speech-to-text (ASR) — **narrow carve-out:** Parrot
+  *does* transcribe the **clone reference clip** to auto-fill `ref_text` (it sharpens
+  cloning — voice-cloning BR-4). That is the only ASR in the app: no dictation screen,
+  no subtitle/caption tool, no file→text utility. Scoped in [docs/specs/transcription.md](docs/specs/transcription.md).
 - Voice "gallery" / YouTube clipping
 - Batch/queue processing
 - Voice marketplace / bundle import-export
@@ -69,9 +72,10 @@ parrot/
 │       ├── config.py         # port/CORS + env bootstrap (Windows HF-cache fix)
 │       ├── core/             # paths, db, schema, device-detect, crypto, logging (redaction)
 │       ├── services/         # model_manager (single get_model), tts_backend, generate, audio_dsp,
-│       │                     #   audio_io, profiles, history, hf_token, setup_manager, settings_store, errors
+│       │                     #   audio_io, profiles, history, hf_token, setup_manager, settings_store,
+│       │                     #   transcribe + asr_manager (reference ASR), errors
 │       ├── engine/           # thin adapter over the `omnivoice` PyPI model lib (in `engine` extra)
-│       └── routers/          # health, engine, generate, profiles, history, setup, settings, ws
+│       └── routers/          # health, engine, generate, profiles, history, setup, settings, transcribe, ws
 ├── docs/                     # specs + roadmap (this is the source of truth — read before coding)
 ├── scripts/                  # smoke test (more bootstrap/packaging helpers arrive in later phases)
 └── site/                     # static landing page (Vite, pnpm) — auto-deploys to GitHub Pages

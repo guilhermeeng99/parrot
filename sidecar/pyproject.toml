@@ -38,6 +38,12 @@ engine = [
     "omnivoice>=0.1.5",
     "transformers>=5.3",
     "pedalboard>=0.9",           # DSP effect presets (graceful-degrades if absent)
+    # Reference transcription (transcription.md): openai-whisper reuses the torch/
+    # CUDA stack omnivoice already pulls — no new native runtime. Pinned high enough
+    # to include large-v3-turbo. `av` (PyAV) decodes webm/m4a/mp3/ogg/flac/wav via
+    # its in-wheel ffmpeg libs, so NO system ffmpeg binary is needed.
+    "openai-whisper>=20240930",
+    "av>=11",
 ]
 
 # CPU vs CUDA torch — selected at first-run by the Rust supervisor from NVIDIA-GPU
@@ -47,13 +53,20 @@ engine = [
 # torch/torchaudio are pinned to PyTorch's per-variant wheel indexes (NOT PyPI,
 # whose default Windows wheel is CPU-only) via [tool.uv.sources] below. cu124 fits
 # Ada/Ampere/Turing NVIDIA GPUs with a recent driver; CPU is the safe default.
+#
+# The `<2.7` ceiling keeps BOTH variants on the same torch line: the cu124 index
+# stops at torch 2.6.x (PyTorch moved newer CUDA wheels to cu126/cu128), while the
+# CPU index/PyPI would otherwise float to a much newer torch — so an unbounded
+# `>=2.4` resolves the GPU and CPU installs to DIFFERENT torch majors (2.6 vs 2.12).
+# Pinning to 2.6.x (which has both a cu124 AND a cpu wheel, and which omnivoice
+# already resolves against on the GPU fork) keeps the two stacks identical.
 cpu = [
-    "torch>=2.4",
-    "torchaudio>=2.4",
+    "torch>=2.6,<2.7",
+    "torchaudio>=2.6,<2.7",
 ]
 cu124 = [
-    "torch>=2.4",
-    "torchaudio>=2.4",
+    "torch>=2.6,<2.7",
+    "torchaudio>=2.6,<2.7",
 ]
 
 # Test/dev tooling — NOT shipped in the bundle (production sync uses `uv sync --no-dev`).

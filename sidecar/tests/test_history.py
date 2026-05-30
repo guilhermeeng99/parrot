@@ -38,6 +38,20 @@ def test_history_audio_missing_row_is_404(client):
     assert client.get("/history/ffffffff/audio").status_code == 404
 
 
+def test_history_audio_mp3_serves_mpeg(client):
+    aid = _gen(client, "export me")
+    res = client.get(f"/history/{aid}/audio.mp3")
+    assert res.status_code == 200
+    assert res.headers["content-type"] == "audio/mpeg"
+    # MP3 frame sync: first byte 0xFF, top 3 bits of the second byte set.
+    assert len(res.content) > 0
+    assert res.content[0] == 0xFF and (res.content[1] & 0xE0) == 0xE0
+
+
+def test_history_audio_mp3_missing_row_is_404(client):
+    assert client.get("/history/ffffffff/audio.mp3").status_code == 404
+
+
 def test_clear_all(client):
     _gen(client, "a")
     _gen(client, "b")

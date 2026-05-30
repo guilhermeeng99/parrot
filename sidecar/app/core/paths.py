@@ -42,6 +42,15 @@ def outputs_dir() -> Path:
     return d
 
 
+def whisper_models_dir() -> Path:
+    """Single-file Whisper `.pt` checkpoints for reference transcription
+    (transcription.md §7). Kept beside — not inside — the HF snapshot cache the
+    OmniVoice gate uses, because openai-whisper ships its own checkpoint format."""
+    d = data_dir() / "whisper_models"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
 def db_path() -> Path:
     """The single SQLite database file."""
     return data_dir() / "parrot.db"

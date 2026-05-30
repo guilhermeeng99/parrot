@@ -2,6 +2,7 @@
   import { onDestroy, onMount } from "svelte";
   import AudioPlayer from "../AudioPlayer.svelte";
   import Recorder from "../Recorder.svelte";
+  import TranscribeModelPicker from "../TranscribeModelPicker.svelte";
   import VoiceCard from "../VoiceCard.svelte";
   import LanguageSelect from "../LanguageSelect.svelte";
   import Button from "../ui/Button.svelte";
@@ -10,8 +11,15 @@
   import Dropzone from "../ui/Dropzone.svelte";
   import Field from "../ui/Field.svelte";
   import ModeTabs from "../ui/ModeTabs.svelte";
+  import Spinner from "../ui/Spinner.svelte";
   import TextInput from "../ui/TextInput.svelte";
   import { createVoice, loadProfiles, profiles } from "$lib/stores/profiles";
+  import {
+    resetTranscription,
+    runTranscription,
+    shouldSeedTranscript,
+    transcribe as txStore,
+  } from "$lib/stores/transcribe";
   import { openProfile, speakWith } from "$lib/stores/ui";
   import { toasts } from "$lib/stores/toasts";
 
@@ -25,6 +33,19 @@
   let language = $state("Auto");
   let saving = $state(false);
   let confirmDuplicate = $state(false);
+
+  // The last transcript Parrot auto-filled — so a re-capture can replace it, but a
+  // value the user hand-edited is never clobbered (transcription.md SM-3).
+  let lastTranscript = $state<string | null>(null);
+
+  // No-speech note: transcription finished but heard nothing AND the user hasn't typed.
+  let refHint = $derived(
+    $txStore.transcription.state === "done" &&
+      ($txStore.transcription.text ?? "") === "" &&
+      refText === ""
+      ? "We couldn't make out any speech — type it yourself, or try a cleaner clip."
+      : "Auto-filled from your clip when a model is ready — edit if needed. Better empty than wrong.",
+  );
 
   // One reusable probe element — creating a fresh Audio() per capture (and
   // never tearing it down) leaks a media element + decode buffer each time.
@@ -44,6 +65,18 @@
     if (captured) URL.revokeObjectURL(captured.url);
     captured = { blob, url: URL.createObjectURL(blob), filename };
     probeLength(captured.url);
+    void autoTranscribe(blob, filename);
+  }
+
+  // Auto-fire transcription on a fresh capture (transcription.md SM-1). A no-op
+  // when no model is downloaded yet (runTranscription returns null). Only seeds
+  // ref_text when it's empty or still holds the previous auto-fill (SM-3).
+  async function autoTranscribe(blob: Blob, filename: string) {
+    resetTranscription();
+    const text = await runTranscription(blob, filename, language);
+    if (text === null) return;
+    if (shouldSeedTranscript(refText, lastTranscript)) refText = text;
+    lastTranscript = text;
   }
 
   function probeLength(url: string) {
@@ -89,6 +122,8 @@
       refText = "";
       captured = null;
       durationHint = "";
+      lastTranscript = null;
+      resetTranscription();
     }
   }
 </script>
@@ -102,6 +137,8 @@
   </header>
 
   <Card>
+    <TranscribeModelPicker />
+
     <ModeTabs
       class="justify-center"
       items={[
@@ -136,11 +173,13 @@
         <Field label="Voice name">
           <TextInput bind:value={name} placeholder="e.g. My narration voice" />
         </Field>
-        <Field
-          label="What was said? (optional)"
-          hint="Type the exact words in your clip — it sharpens the clone. Leave blank if unsure: better empty than wrong."
-        >
+        <Field label="What was said? (optional)" hint={refHint}>
           <TextInput bind:value={refText} placeholder="Transcript of the reference clip" />
+          {#if $txStore.transcription.state === "transcribing"}
+            <span class="mt-1 inline-flex items-center gap-2 text-body text-slate-blue">
+              <Spinner size="sm" /> Transcribing your clip…
+            </span>
+          {/if}
         </Field>
         <Field label="Language">
           <LanguageSelect bind:value={language} />

@@ -96,6 +96,41 @@ export interface DownloadEvent {
   rate?: number;
 }
 
+// --- Reference transcription (ASR) — transcription.md / ipc-contract §6A -------
+
+export interface TranscribeModel {
+  id: string; // "large-v3"
+  label: string; // "Large v3 (max fidelity)"
+  size_mb: number; // ~3100
+  downloaded: boolean; // .pt present under parrot_data/whisper_models/
+}
+
+export interface TranscribeStatus {
+  models: TranscribeModel[];
+  default_model: string; // "large-v3"
+  device: "cuda" | "cpu"; // resolved compute device
+  device_label?: string; // e.g. "GPU (CUDA) — RTX 4090"
+  gpu: boolean; // device === "cuda" (drives the "GPU acceleration on" badge)
+}
+
+/** Mirrors DownloadEvent but keyed by `model`, not `repo_id`. */
+export interface TranscribeDownloadEvent {
+  model: string;
+  filename: string;
+  downloaded: number; // bytes
+  total: number; // bytes (0 while resolving)
+  pct: number; // 0.0–1.0
+  phase: DownloadPhase;
+  error?: string;
+  attempt?: number;
+}
+
+export interface TranscribeResult {
+  text: string; // transcript ("" when no speech was heard — not an error)
+  language: string; // detected/echoed language code, e.g. "pt"
+  model: string; // model id used
+}
+
 /** Phases of the synthesis-progress SSE stream (GET /generate/progress-stream). */
 export type GenerationPhase = "start" | "step" | "done" | "error";
 

@@ -221,7 +221,8 @@ The synthesis log.
 | Method | Path | Returns | Notes |
 |--------|------|---------|-------|
 | `GET` | `/history` | `HistoryRow[]` | Newest first, capped at 50. |
-| `GET` | `/history/{id}/audio` | `audio/wav` file | Serves a past generation's WAV so the History list can replay it. `404` if the row or file is missing. |
+| `GET` | `/history/{id}/audio` | `audio/wav` file | Serves a past generation's WAV so the History list can replay it (in-app playback). `404` if the row or file is missing. |
+| `GET` | `/history/{id}/audio.mp3` | `audio/mpeg` bytes | The same clip re-encoded to MP3 for the user's **download/export** (smaller, shareable). Playback stays WAV; only the exported file is MP3. `404` if the row or file is missing. |
 | `DELETE` | `/history` | `{ cleared: true }` | Deletes every row and its on-disk audio. |
 | `DELETE` | `/history/{id}` | `{ deleted: true }` | Deletes one row + its audio file. |
 
@@ -240,6 +241,10 @@ interface HistoryRow {
 ```
 
 Deletes are best-effort on the file (a missing file does not fail the request) and always remove the DB row. The `generation_history` row shape has no `mode` column.
+
+### `POST /audio/mp3` — stateless export transcode
+
+Body: raw WAV bytes (`Content-Type: audio/wav`). Returns the same audio re-encoded as MP3 (`audio/mpeg`). No DB, no model — just `soundfile`. The Speak screen uses this to export a **fresh result** straight from the WAV bytes it holds in memory, so an export never depends on a history row (which the user may have already cleared). History-list exports instead use `GET /history/{id}/audio.mp3` (the row + file still exist there). `400` on empty or undecodable input.
 
 ---
 
@@ -281,6 +286,58 @@ interface DownloadEvent {
 > **Parrot trim:** OmniVoice's `POST /setup/warmup`, `POST /models/install`, `DELETE /models/{id}`, and the `GET /setup/preflight` system-health panel (OS/RAM/GPU/ffmpeg/yt-dlp checks) are **out of Parrot's documented surface**. The setup surface is exactly these three endpoints — `GET /setup/status`, `POST /setup/download`, `GET /setup/download-stream` — with no model-management surface beyond them. Parrot needs no ffmpeg/yt-dlp (no dubbing, no YouTube clipping). Device detection is covered separately in [device-detection.md](./device-detection.md).
 
 > The SSE stream is consumed via `EventSource`, not `apiFetch`. `setup.ts` exposes a `subscribeDownload(onEvent, onError)` that wraps `new EventSource(apiUrl('/setup/download-stream'))` and `JSON.parse`s each `data:` payload into a `DownloadEvent`.
+
+---
+
+## 6A. Reference transcription (ASR)
+
+The clone-time speech-to-text that auto-fills `ref_text`. This is Parrot's **only** ASR surface and exists solely to serve cloning — see [transcription.md](./transcription.md) for the full contract, the scope carve-out, and the engine rationale (openai-whisper on the existing torch/CUDA stack, av-based decode, no system ffmpeg). The typed client is `frontend/src/lib/api/transcribe.ts`.
+
+| Method | Path | Body | Returns | Errors |
+|--------|------|------|---------|--------|
+| `GET` | `/transcribe/status` | — | `TranscribeStatus` | — |
+| `POST` | `/transcribe/download` | json: `{ model }` | `{ status: "download_started", model }` | `400` unknown model; `429` within 60 s of a failed download |
+| `GET` | `/transcribe/download-stream` | — | `text/event-stream` of `TranscribeDownloadEvent` | — |
+| `POST` | `/transcribe` | form: `ref_audio`* (file), `model`, `language` | `TranscribeResult` | `400` unknown model; `409` model not downloaded; `415` unsupported ext; `500` decode/engine failure |
+
+```ts
+interface TranscribeModel {
+  id: string;          // "large-v3"
+  label: string;       // "Large v3 (max fidelity)"
+  size_mb: number;     // ~3100
+  downloaded: boolean; // .pt present under parrot_data/whisper_models/
+}
+interface TranscribeStatus {
+  models: TranscribeModel[];
+  default_model: string;      // "large-v3"
+  device: "cuda" | "cpu";     // resolved compute device (device-detection.md)
+  device_label?: string;      // e.g. "GPU (CUDA) — RTX 4090"
+  gpu: boolean;               // device === "cuda" (drives the "GPU acceleration on" badge)
+}
+// Mirrors DownloadEvent but keyed by `model`, not `repo_id`.
+interface TranscribeDownloadEvent {
+  model: string;
+  filename: string;
+  downloaded: number;  // bytes
+  total: number;       // bytes (0 while resolving)
+  pct: number;         // 0.0–1.0
+  phase: 'install_start' | 'resolving' | 'progress'
+       | 'install_retry' | 'install_done' | 'install_error';
+  error?: string;      // present on install_error / install_retry
+  attempt?: number;    // present on install_retry
+}
+interface TranscribeResult {
+  text: string;        // the transcript ("" when no speech was heard — not an error)
+  language: string;    // detected/echoed language code, e.g. "pt"
+  model: string;       // model id used
+}
+```
+
+- `POST /transcribe` is **blocking** (no per-step progress stream — the UI shows an indeterminate "Transcribing…" spinner). It runs in a threadpool so the Whisper call never stalls the loop, and the engine serializes calls (Parrot is single-user). The %-bar is reserved for the multi-GB *download*, which mirrors `/setup/download-stream` (the client wraps it as `subscribeTranscribeDownload` exactly like `subscribeDownload`).
+- `language` takes the clone Language-picker values (full English names + `"Auto"`); `"Auto"`/unknown → auto-detect.
+- The download caches single-file `.pt` weights under `parrot_data/whisper_models/` — **not** the HF cache the OmniVoice gate (`/setup/*`) uses.
+
+> **Scope note:** transcription is wired **only** into the Clone capture flow ([voice-cloning.md](./voice-cloning.md)). There is no Speak/History/standalone use, and `ref_text` is the only thing it writes (no new entity — see [transcription.md §7](./transcription.md)).
 
 ---
 
@@ -405,7 +462,7 @@ The browser sandbox can't open files or reveal folders. The Svelte UI calls thes
 
 | `invoke()` name | Args | Returns | Purpose |
 |-----------------|------|---------|---------|
-| `save_audio_dialog` | `{ defaultName: string, wavBytes?: number[] }` | `string \| null` (chosen path, or null if cancelled) | Native "Save As" dialog to export a generated WAV. |
+| `save_audio_dialog` | `{ defaultName: string, audioBytes?: number[] }` | `string \| null` (chosen path, or null if cancelled) | Native "Save As" dialog to export audio. Writes `audioBytes` verbatim and derives the dialog file-type filter from `defaultName`'s extension, so it serves both exports: a **generated** clip (transcoded to MP3 server-side via `GET /history/{id}/audio.mp3`, `.mp3`) and a voice's **original reference** clip (downloaded as-is via `GET /profiles/{id}/audio`, in its source format). |
 | `reveal_in_folder` | `{ path: string }` | `void` | Reveal a file in Windows Explorer. |
 | `get_app_paths` | — | `{ dataDir, outputsDir, voicesDir, dbPath, logPath }` | Resolve `parrot_data/` locations for the UI (e.g. "open data folder"). |
 | `read_log_tail` | `{ source: "backend" \| "tauri", tail?: number }` | `{ lines: string[], path, exists, total_lines }` | Tail a log (`tail` clamped 10–2000, default 300). Implemented + tested for **future use**: the current Settings UI surfaces the backend log by revealing `backend.log` in Explorer (via `reveal_in_folder`), not by calling this. `"backend"` reads `backend.log` (sidecar stdout). `"tauri"` targets `parrot.log`, which is **not yet written** — no Tauri logging plugin is registered, so that source returns `exists: false` until logging is wired (see [architecture.md](./architecture.md) §7). |
@@ -471,9 +528,10 @@ The boot splash drives the bootstrap store (architecture.md §5.1) off these. Th
 | Endpoint group | DB tables | On-disk |
 |----------------|-----------|---------|
 | `/generate` | inserts `generation_history` | writes `<id>.wav` to the outputs dir; temp ref file deleted after |
-| `/history*` | reads / deletes `generation_history` | deletes matching output WAVs |
+| `/history*` | reads / deletes `generation_history` | deletes matching output WAVs; `audio.mp3` re-encodes a WAV to MP3 in memory (no file written) |
 | `/profiles*` | reads / writes `voice_profiles`; nulls `generation_history.profile_id` on delete | writes/reads/deletes `<id>.<ext>` and `<id>_locked.wav` in the voices dir |
 | `/setup/*` | none | reads/writes the HuggingFace cache (`$HF_HUB_CACHE`) |
+| `/transcribe/*` | none | writes/reads Whisper `.pt` weights under `parrot_data/whisper_models/`; decodes the posted clip in memory (no file written). Output lands in `voice_profiles.ref_text` only when the user saves the profile. |
 | `/settings/hf-token*` | reads / writes `settings` (value encrypted) | none |
 | `/engine/status`, `/healthz` | none | none |
 | `/ws/tts` | reads `voice_profiles` (voice resolution) | none (streams in-memory PCM) |

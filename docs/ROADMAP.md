@@ -78,6 +78,7 @@ Make the MVP solid on Windows 10/11 (x64) — the only supported platform ([CLAU
 - ☑ Error surfaces that tell the user what to do — uniform 5-state interaction model, redacted `detail` envelopes, OOM "Flush & retry", offline/gated setup guidance, engine-starting (not error) handling.
 - ☑ README, install docs, troubleshooting ([../README.md](../README.md)).
 - ☑ Static landing page (`site/`) — auto-deploys to GitHub Pages via `.github/workflows/deploy-site.yml` on every push to `main`.
+- ◐ Reference auto-transcription ([transcription.md](specs/transcription.md)) — openai-whisper in the sidecar fills `ref_text` from the clone clip; user-selected model (default `large-v3`), on-demand download with SSE progress, GPU via the existing torch/CUDA stack, av-based decode (no system ffmpeg). **Needs a real run to confirm** the model download + a true transcription on Windows (requires the `engine` extra + weights — the asr boundary is mocked in the headless suite).
 
 **Exit:** the maintainer calls it "actually useful." Tag `v1.0.0`. **Remaining before a real `v1.0.0`:** run the model download + clone→speak on a real Windows machine (GPU/CPU) and produce + code-sign the MSI — neither of which is doable in a headless environment.
 
@@ -85,4 +86,6 @@ Make the MVP solid on Windows 10/11 (x64) — the only supported platform ([CLAU
 
 ## Out of scope (will be declined unless this doc changes)
 
-Video dubbing · dictation/ASR · voice gallery / YouTube clipping · batch queue · marketplace · multi-engine picker · any cloud/account/telemetry. See [../CLAUDE.md](../CLAUDE.md) §Scope.
+Video dubbing · general dictation/ASR · voice gallery / YouTube clipping · batch queue · marketplace · multi-engine picker · any cloud/account/telemetry. See [../CLAUDE.md](../CLAUDE.md) §Scope.
+
+> **Carve-out (2026-05-29):** auto-transcribing the **clone reference clip** to fill `ref_text` is in scope (it sharpens cloning — voice-cloning BR-4), via openai-whisper in the sidecar. This is the *only* ASR; it is not dictation. Spec: [specs/transcription.md](specs/transcription.md).
