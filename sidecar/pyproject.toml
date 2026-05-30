@@ -1,6 +1,6 @@
 [project]
 name = "parrot-sidecar"
-version = "0.0.12"
+version = "0.0.13"
 description = "Parrot local voice engine — FastAPI sidecar (clone + speak)"
 requires-python = ">=3.11"
 
