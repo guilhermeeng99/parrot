@@ -1,26 +1,59 @@
 <script lang="ts">
-  import Select from "./ui/Select.svelte";
+  import { focusRing } from "./ui/focusRing";
 
-  // Language picker. The model supports ~600 zero-shot languages; we surface
-  // "Auto" (default) plus a curated common set. Auto = let the model detect.
+  // The model accepts free-form language hints across its broad zero-shot set.
+  // We provide common suggestions plus Auto, but do not block less common names.
   let { value = $bindable("Auto") }: { value?: string } = $props();
 
+  const listId = "parrot-language-options";
   const options = [
-    { value: "Auto", label: "Auto (detect)" },
-    { value: "English", label: "English" },
-    { value: "Spanish", label: "Spanish" },
-    { value: "Portuguese", label: "Portuguese" },
-    { value: "French", label: "French" },
-    { value: "German", label: "German" },
-    { value: "Italian", label: "Italian" },
-    { value: "Dutch", label: "Dutch" },
-    { value: "Russian", label: "Russian" },
-    { value: "Chinese", label: "Chinese" },
-    { value: "Japanese", label: "Japanese" },
-    { value: "Korean", label: "Korean" },
-    { value: "Hindi", label: "Hindi" },
-    { value: "Arabic", label: "Arabic" },
+    "Auto",
+    "English",
+    "Spanish",
+    "Portuguese",
+    "French",
+    "German",
+    "Italian",
+    "Dutch",
+    "Russian",
+    "Chinese",
+    "Japanese",
+    "Korean",
+    "Hindi",
+    "Arabic",
+    "Bengali",
+    "Turkish",
+    "Vietnamese",
+    "Polish",
+    "Ukrainian",
+    "Indonesian",
+    "Thai",
+    "Swedish",
+    "Norwegian",
+    "Danish",
+    "Finnish",
+    "Greek",
+    "Hebrew",
   ];
+
+  function normalize() {
+    const trimmed = value.trim();
+    value = trimmed || "Auto";
+  }
 </script>
 
-<Select bind:value {options} />
+<input
+  bind:value
+  list={listId}
+  class="w-full rounded-xl border border-metal-gray bg-charcoal-card px-3 py-2 text-body-lg text-cloud-whisper placeholder:text-ash-gray focus-visible:border-button-yellow {focusRing}"
+  placeholder="Auto (detect)"
+  autocomplete="off"
+  spellcheck="false"
+  onblur={normalize}
+/>
+
+<datalist id={listId}>
+  {#each options as option}
+    <option value={option}>{option === "Auto" ? "Auto (detect)" : option}</option>
+  {/each}
+</datalist>

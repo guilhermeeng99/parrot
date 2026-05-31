@@ -27,7 +27,7 @@ echo "    frontend build OK"
 # 2. Sidecar venv. --no-dev: the smoke test exercises the runtime app only, and
 #    the shipped/first-run venv must not carry pytest/httpx (dev-group) weight.
 echo "==> Syncing sidecar venv…"
-( cd "$ROOT/sidecar" && uv sync --no-dev -q )
+( cd "$ROOT/sidecar" && uv sync --frozen --no-dev -q )
 
 # 3. Boot the sidecar against a throwaway data dir.
 echo "==> Booting sidecar…"

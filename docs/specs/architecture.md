@@ -154,7 +154,7 @@ The sidecar exposes a small REST surface (full shapes in [ipc-contract.md](./ipc
 - `WS /ws/tts` — optional streaming synthesis (chunked PCM). Synthesis channel only.
 
 **Voice profiles** (clone → reusable profile) — see [voice-profiles.md](./voice-profiles.md)
-- `GET /profiles` · `POST /profiles` *(form: `name`, `ref_audio` file, `ref_text`, `instruct`, `language`, `seed`)* · `GET /profiles/{id}` · `PUT /profiles/{id}` *(json: `name?`, `ref_text?`, `instruct?`, `language?`)* · `GET /profiles/{id}/audio` · `GET /profiles/{id}/usage` · `POST /profiles/{id}/lock` *(form: `history_id`, `seed?`)* · `POST /profiles/{id}/unlock` · `DELETE /profiles/{id}`
+- `GET /profiles` · `POST /profiles` *(form: `name`, `ref_audio` file, `ref_text`, `instruct`, `language`, `seed`)* · `GET /profiles/{id}` · `PUT /profiles/{id}` *(json: `name?`, `ref_text?`, `instruct?`, `language?`)* · `GET /profiles/{id}/audio` · `GET /profiles/{id}/audio/original` · `GET /profiles/{id}/usage` · `POST /profiles/{id}/lock` *(form: `history_id`, `seed?`)* · `POST /profiles/{id}/unlock` · `DELETE /profiles/{id}`
 - `GET /profiles/{id}/usage` returns `{ "synth_recent": [≤20 most-recent generation_history rows], "synth_total": int }`.
 
 **History**

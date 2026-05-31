@@ -2,8 +2,9 @@
   import {
     type VoiceProfile,
     inTauri,
-    profileAudioBytes,
     profileAudioUrl,
+    profileOriginalAudioBytes,
+    profileOriginalAudioUrl,
     saveAudioDialog,
   } from "$lib/api";
   import { removeProfile } from "$lib/stores/profiles";
@@ -60,11 +61,11 @@
     try {
       const filename = downloadName();
       if (inTauri()) {
-        const path = await saveAudioDialog(filename, await profileAudioBytes(profile.id));
+        const path = await saveAudioDialog(filename, await profileOriginalAudioBytes(profile.id));
         if (path) toasts.success("Saved");
       } else {
         const a = document.createElement("a");
-        a.href = await profileAudioUrl(profile.id);
+        a.href = await profileOriginalAudioUrl(profile.id);
         a.download = filename;
         a.click();
       }

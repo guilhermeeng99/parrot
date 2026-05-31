@@ -8,6 +8,9 @@ lazily on first model access, so `create_app()` and `/healthz` stay instant.
 import asyncio
 import contextlib
 import logging
+import tomllib
+from importlib.metadata import PackageNotFoundError, version
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -36,6 +39,18 @@ from .services.errors import ServiceError
 log = logging.getLogger(__name__)
 
 
+def _app_version() -> str:
+    try:
+        return version("parrot-sidecar")
+    except PackageNotFoundError:
+        pyproject = Path(__file__).resolve().parents[1] / "pyproject.toml"
+        try:
+            with pyproject.open("rb") as f:
+                return tomllib.load(f)["project"]["version"]
+        except Exception:
+            return "0.0.0"
+
+
 @contextlib.asynccontextmanager
 async def _lifespan(app: FastAPI):
     db.init_db()  # idempotent schema create
@@ -53,7 +68,7 @@ def create_app() -> FastAPI:
     config.prepare_environment()  # MUST run before any huggingface_hub import
     configure_logging()
 
-    app = FastAPI(title="Parrot sidecar", version="0.0.1", lifespan=_lifespan)
+    app = FastAPI(title="Parrot sidecar", version=_app_version(), lifespan=_lifespan)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=config.CORS_ORIGINS,

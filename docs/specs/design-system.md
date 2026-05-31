@@ -340,7 +340,7 @@ Composed strictly from the tokens and primitive recipes above. **No new colors.*
 
 ### `LanguageSelect.svelte` — language picker
 
-- **Anatomy:** the `Select` recipe with a searchable type-ahead overlay (~600 zero-shot languages plus `Auto`, default `Auto`). The dropdown surface is a `charcoal-card` panel with `white/10` hairline separators; the highlighted option uses `bg-slate-fill text-cloud-whisper`, the selected option `text-button-yellow`.
+- **Anatomy:** a token-styled type-ahead input with native suggestions (`Auto`, default `Auto`, plus common languages). The field accepts any non-empty language hint so less common zero-shot languages are not blocked by the curated suggestion list. Empty blur normalizes back to `Auto`.
 
 ### `SetupGate.svelte` + `DownloadProgress.svelte` — first-run gate
 

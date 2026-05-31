@@ -24,6 +24,14 @@ _NOT_FOUND = "That voice profile doesn't exist. It may have been deleted from an
 # unsupported *extension* here, letting a wrong file fail fast at upload instead of
 # as an opaque 500 at synthesis. Decodability + silence are validated at synthesis.
 _SUPPORTED_AUDIO_EXTS = {".wav", ".mp3", ".m4a", ".flac", ".ogg", ".webm"}
+_AUDIO_MIME_BY_EXT = {
+    ".wav": "audio/wav",
+    ".mp3": "audio/mpeg",
+    ".m4a": "audio/mp4",
+    ".flac": "audio/flac",
+    ".ogg": "audio/ogg",
+    ".webm": "audio/webm",
+}
 
 
 def _row_to_dict(row) -> dict:
@@ -258,6 +266,25 @@ def audio_path_for(profile_id: str):
     if path is None or not path.exists():
         raise ServiceError(404, "Audio file missing on disk.")
     return path
+
+
+def original_audio_path_for(profile_id: str):
+    """Resolve the profile's original uploaded reference clip."""
+    profile = get_profile(profile_id)
+    if profile is None:
+        raise ServiceError(404, "Profile not found.")
+    chosen = profile["ref_audio_path"]
+    if not chosen:
+        raise ServiceError(404, "No original audio available for this profile.")
+    path = paths.safe_voice_path(chosen)
+    if path is None or not path.exists():
+        raise ServiceError(404, "Audio file missing on disk.")
+    return path
+
+
+def audio_mime_for(path) -> str:
+    """Best-effort MIME type for a stored profile audio file."""
+    return _AUDIO_MIME_BY_EXT.get(path.suffix.lower(), "application/octet-stream")
 
 
 def _empty(value) -> bool:

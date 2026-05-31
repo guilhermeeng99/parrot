@@ -9,10 +9,6 @@
 
 import { inTauri } from "./client";
 
-/** Last resort: if the sidecar is up but never reports healthy, stop waiting
- *  after this long and let the page probe (so its error + Retry stays reachable). */
-const READY_TIMEOUT_MS = 90_000;
-
 /** Raised when the supervisor reports the sidecar permanently failed to start. */
 export class SidecarFailedError extends Error {
   constructor() {
@@ -22,9 +18,9 @@ export class SidecarFailedError extends Error {
 }
 
 /**
- * Resolve once the supervisor reports the sidecar healthy (or the wait times
- * out). Rejects with `SidecarFailedError` if the supervisor gave up. No-op
- * (resolves immediately) outside Tauri.
+ * Resolve once the supervisor reports the sidecar healthy. Rejects with
+ * `SidecarFailedError` if the supervisor gave up. No-op (resolves immediately)
+ * outside Tauri.
  */
 export async function whenSidecarReady(): Promise<void> {
   if (!inTauri()) return;
@@ -42,7 +38,6 @@ export async function whenSidecarReady(): Promise<void> {
     const stop = () => {
       settled = true;
       clearInterval(poll);
-      clearTimeout(timer);
       for (const u of unlisten) u();
     };
     const succeed = () => {
@@ -61,14 +56,20 @@ export async function whenSidecarReady(): Promise<void> {
     void listen("sidecar-failed", fail).then(track);
 
     // Safety net: poll both latched states in case an event fired before we
-    // subscribed.
+    // subscribed. Do not time out as success: first-run dependency/model setup
+    // can legitimately take several minutes, and the splash should keep showing
+    // supervisor progress until a real ready/failed terminal state arrives.
     const poll = setInterval(async () => {
       if (settled) return;
-      if (await invoke<boolean>("sidecar_failed")) return fail();
-      if (await invoke<boolean>("sidecar_ready")) return succeed();
+      try {
+        if (await invoke<boolean>("sidecar_failed")) return fail();
+        if (await invoke<boolean>("sidecar_ready")) return succeed();
+      } catch (e) {
+        if (!settled) {
+          stop();
+          reject(e);
+        }
+      }
     }, 400);
-
-    // Never hang the UI: fall through to a probe if readiness never arrives.
-    const timer = setTimeout(succeed, READY_TIMEOUT_MS);
   });
 }

@@ -65,7 +65,13 @@ def update_profile(profile_id: str, patch: ProfilePatch) -> dict:
 @router.get("/{profile_id}/audio")
 def profile_audio(profile_id: str):
     path = svc.audio_path_for(profile_id)
-    return FileResponse(str(path), media_type="audio/wav")
+    return FileResponse(str(path), media_type=svc.audio_mime_for(path), filename=path.name)
+
+
+@router.get("/{profile_id}/audio/original")
+def profile_original_audio(profile_id: str):
+    path = svc.original_audio_path_for(profile_id)
+    return FileResponse(str(path), media_type=svc.audio_mime_for(path), filename=path.name)
 
 
 @router.get("/{profile_id}/usage")

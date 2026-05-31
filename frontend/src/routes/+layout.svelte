@@ -25,6 +25,7 @@
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import Toast from "$lib/components/ui/Toast.svelte";
   import SetupGate from "$lib/components/SetupGate.svelte";
+  import WindowTitlebar from "$lib/components/WindowTitlebar.svelte";
 
   let { children } = $props();
 
@@ -46,8 +47,11 @@
   ];
 </script>
 
+<div class="flex h-screen flex-col overflow-hidden bg-deep-space">
+  <WindowTitlebar />
+  <div class="min-h-0 flex-1 overflow-y-auto">
 {#if $bootstrap.state === "checking"}
-  <main class="flex min-h-screen items-center justify-center bg-deep-space px-6">
+  <main class="flex min-h-full items-center justify-center px-6">
     <Card class="w-full max-w-md">
       <div class="flex items-center gap-3">
         <Spinner />
@@ -58,7 +62,7 @@
     </Card>
   </main>
 {:else if $bootstrap.state === "failed"}
-  <main class="flex min-h-screen items-center justify-center bg-deep-space px-6">
+  <main class="flex min-h-full items-center justify-center px-6">
     <Card class="w-full max-w-md">
       <h1 class="text-heading font-display font-bold tracking-tight text-danger">
         Parrot's engine couldn't start.
@@ -77,16 +81,15 @@
     </Card>
   </main>
 {:else if !setupReady}
-  <SetupGate onready={() => (setupReady = true)} />
-{:else}
-  <header class="sticky top-0 z-50 border-b border-white/10 bg-night-sky/90 backdrop-blur">
-    <div class="mx-auto flex h-16 max-w-[1000px] items-center gap-4 px-6">
-      <span class="text-heading font-display font-bold tracking-tight text-cloud-whisper">
-        <span aria-hidden="true">🦜</span> Parrot
-      </span>
-      <Badge>local</Badge>
-      {#if $appVersion}
-        <span class="text-body text-ash-gray" title="Installed version">v{$appVersion}</span>
+  <div>
+    <SetupGate onready={() => (setupReady = true)} />
+  </div>
+  {:else}
+    <header class="sticky top-0 z-50 border-b border-white/10 bg-night-sky/90 backdrop-blur">
+      <div class="mx-auto flex h-16 max-w-[1000px] items-center gap-4 px-6">
+        <Badge>local</Badge>
+        {#if $appVersion}
+          <span class="text-body text-ash-gray" title="Installed version">v{$appVersion}</span>
       {/if}
       <nav class="ml-auto">
         <ModeTabs items={navItems} value={$mode} onselect={(v) => mode.set(v as typeof $mode)} />
@@ -102,5 +105,7 @@
     {@render children()}
   </main>
 {/if}
+  </div>
+</div>
 
 <Toast />

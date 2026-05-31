@@ -44,10 +44,14 @@ export const getProfileUsage = (id: string) => apiJson<ProfileUsage>(`/profiles/
 export const profileAudioUrl = (id: string) =>
   apiBase().then((base) => `${base}/profiles/${id}/audio`);
 
-/** The profile's original reference clip as raw bytes (GET /profiles/{id}/audio),
+/** Full URL to a profile's original uploaded reference clip. */
+export const profileOriginalAudioUrl = (id: string) =>
+  apiBase().then((base) => `${base}/profiles/${id}/audio/original`);
+
+/** The profile's original reference clip as raw bytes (GET /profiles/{id}/audio/original),
  *  for downloading it to disk in its source format. Throws ApiError on failure. */
-export async function profileAudioBytes(id: string): Promise<Uint8Array> {
-  const res = await apiFetch(`/profiles/${id}/audio`);
+export async function profileOriginalAudioBytes(id: string): Promise<Uint8Array> {
+  const res = await apiFetch(`/profiles/${id}/audio/original`);
   return new Uint8Array(await res.arrayBuffer());
 }
 

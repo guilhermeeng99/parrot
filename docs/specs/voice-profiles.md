@@ -47,7 +47,7 @@ The table is created idempotently (`CREATE TABLE IF NOT EXISTS`, WAL, `foreign_k
 5. **Update is a partial patch.** `PUT /profiles/{id}` changes only the fields present on the payload (`name`, `ref_text`, `instruct`, `language`). A patch with no editable fields is a `400`. `name` and `language` are trimmed before storing.
 6. **A profile may not be renamed to empty.** A `name` consisting only of whitespace is rejected with `400` and the existing name is preserved.
 7. **Reference audio is not editable via update.** `PUT` cannot change `ref_audio_path`. Replacing the reference clip means deleting and re-creating the profile (or, for reproducibility, using lock — see Rule 9).
-8. **Audio fetch prefers the locked clip.** `GET /profiles/{id}/audio` serves `locked_audio_path` when present, otherwise `ref_audio_path`. Distinct `404`s distinguish "no such profile", "profile has no audio recorded", and "audio file is missing on disk".
+8. **Audio fetch prefers the locked clip.** `GET /profiles/{id}/audio` serves `locked_audio_path` when present, otherwise `ref_audio_path`. `GET /profiles/{id}/audio/original` always serves the uploaded reference clip. Distinct `404`s distinguish "no such profile", "profile has no audio recorded", and "audio file is missing on disk".
 9. **Lock pins a deterministic reference from history.** `POST /profiles/{id}/lock` takes a `history_id`, copies that generation's audio into `parrot_data/voices/{id}_locked.wav`, and writes back: `locked_audio_path`, the optional `seed`, `is_locked = 1`, and `ref_text` set to the first 100 characters of the history item's text. From then on, synthesis through this profile reproduces the pinned voice.
 10. **Unlock reverts to the original clone.** `POST /profiles/{id}/unlock` deletes the locked WAV from disk (if present), and clears `locked_audio_path = ''`, `seed = NULL`, `is_locked = 0`. `ref_audio_path` and `name` are untouched, so the profile reverts to behaving like its pre-lock self.
 11. **Lock only copies the WAV — it does not move history.** The source `generation_history` row is unchanged; lock duplicates its audio into the voices dir. Deleting that history row later does not break a locked profile (the copy is independent).
@@ -85,7 +85,10 @@ Partial update.
 - **Errors:** `400` empty `name`; `400` no editable fields present in body; `404` no such id.
 
 ### `GET /profiles/{id}/audio`
-Stream the profile's representative audio (`audio/wav`).
+Stream the profile's representative audio: locked WAV when present, otherwise the uploaded reference clip in its source format.
+
+### `GET /profiles/{id}/audio/original`
+Stream the profile's original uploaded reference clip in its source format.
 - **Resolution:** `locked_audio_path` if set, else `ref_audio_path`.
 - **Returns** `200` — `FileResponse`, `media_type: audio/wav`.
 - **Errors:** `404` "Profile not found"; `404` "No audio available" (neither path set); `404` "Audio file missing" (path set but file absent on disk).

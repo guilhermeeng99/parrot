@@ -104,6 +104,7 @@ describe("startDownload", () => {
     startDownloadApi.mockRejectedValue(new ApiError("/setup/download", 403, "repo is gated"));
     await startDownload();
     expect(get(setup).state).toBe("needs_token");
+    expect(unsub).toHaveBeenCalled();
   });
 
   it("maps a non-gated failure to download_failed", async () => {
@@ -114,6 +115,19 @@ describe("startDownload", () => {
     startDownloadApi.mockRejectedValue(new ApiError("/setup/download", 500, "disk exploded"));
     await startDownload();
     expect(get(setup).state).toBe("download_failed");
+    expect(unsub).toHaveBeenCalled();
+  });
+
+  it("maps an SSE subscription failure to download_failed", async () => {
+    const { setup, checkSetup, startDownload } = await loadStore();
+    getSetupStatus.mockResolvedValue(status());
+    await checkSetup();
+    subscribeDownload.mockRejectedValue(new Error("stream refused"));
+    await startDownload();
+    const s = get(setup);
+    expect(s.state).toBe("download_failed");
+    expect(s.message).toContain("stream refused");
+    expect(startDownloadApi).not.toHaveBeenCalled();
   });
 });
 
@@ -155,5 +169,6 @@ describe("SSE-driven verification", () => {
     const s = get(setup);
     expect(s.state).toBe("download_failed");
     expect(s.message).toBe("network reset");
+    expect(unsub).toHaveBeenCalled();
   });
 });

@@ -16,12 +16,17 @@ use std::sync::{Mutex, MutexGuard};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+#[cfg(windows)]
+use std::path::PathBuf;
+
 use tauri::{AppHandle, Emitter, Manager};
 
 // The venv/uv/path bootstrap concern. `data_dir`/`log_dir` are re-exported so
 // `native.rs` (and existing call sites) keep using `supervisor::data_dir`.
 pub use crate::bootstrap::{data_dir, log_dir};
-use crate::bootstrap::{ensure_venv, log_file_stdio, no_window, sidecar_dir, venv_dir, venv_python};
+use crate::bootstrap::{
+    ensure_venv, log_file_stdio, no_window, sidecar_dir, venv_dir, venv_python,
+};
 
 /// How often the supervisor polls the child + health endpoint.
 const POLL_INTERVAL: Duration = Duration::from_millis(800);
@@ -137,7 +142,8 @@ fn failures_after_exit(prev: u32, was_healthy: bool) -> u32 {
 pub fn resolve_port() -> u16 {
     std::env::var("PARROT_PORT")
         .ok()
-        .and_then(|s| s.parse().ok())
+        .and_then(|s| s.parse::<u16>().ok())
+        .filter(|port| *port != 0)
         .unwrap_or(3900)
 }
 
@@ -148,10 +154,12 @@ pub fn resolve_port() -> u16 {
 /// only a real Parrot health envelope counts. Pure (no I/O) so it is unit-testable
 /// without a server.
 fn is_ok_health_body(body: &str) -> bool {
-    serde_json::from_str::<serde_json::Value>(body)
-        .ok()
-        .and_then(|v| v.get("status").and_then(|s| s.as_str()).map(str::to_string))
-        .is_some_and(|status| status == "ok")
+    match serde_json::from_str::<serde_json::Value>(body).ok() {
+        Some(serde_json::Value::Object(map)) if map.len() == 1 => {
+            matches!(map.get("status"), Some(serde_json::Value::String(status)) if status == "ok")
+        }
+        _ => false,
+    }
 }
 
 fn health_ok(port: u16) -> bool {
@@ -161,7 +169,9 @@ fn health_ok(port: u16) -> bool {
             if resp.status() != 200 {
                 return false;
             }
-            resp.into_string().map(|b| is_ok_health_body(&b)).unwrap_or(false)
+            resp.into_string()
+                .map(|b| is_ok_health_body(&b))
+                .unwrap_or(false)
         }
         Err(_) => false,
     }
@@ -208,19 +218,33 @@ fn kill_orphan_on_port(app: &AppHandle, state: &SidecarState, port: u16) {
         let Ok(out) = out else { return };
         let text = String::from_utf8_lossy(&out.stdout);
         let needle = format!(":{port}");
+        let markers = parrot_process_markers(app);
         for line in text.lines() {
             if !(line.contains(&needle) && line.to_uppercase().contains("LISTENING")) {
                 continue;
             }
-            let Some(pid) = line.split_whitespace().last() else { continue };
-            match pid_image(pid) {
-                Some(image) if is_parrot_owned_image(&image) => {
-                    state.log(app, &format!("[supervisor] killing port squatter pid={pid} ({image})"));
+            let Some(pid) = line.split_whitespace().last() else {
+                continue;
+            };
+            match pid_process_info(pid) {
+                Some(info) if is_parrot_owned_process(&info, &markers) => {
+                    state.log(
+                        app,
+                        &format!(
+                            "[supervisor] killing port squatter pid={pid} ({})",
+                            info.image
+                        ),
+                    );
                     let _ = no_window(Command::new("taskkill").args(["/F", "/PID", pid])).output();
                 }
                 other => {
-                    let label = other.unwrap_or_else(|| "<unknown>".into());
-                    state.log(app, &format!("[supervisor] skipping non-Parrot port owner pid={pid} ({label})"));
+                    let label = other
+                        .map(|info| info.image)
+                        .unwrap_or_else(|| "<unknown or unverified>".into());
+                    state.log(
+                        app,
+                        &format!("[supervisor] skipping non-Parrot port owner pid={pid} ({label})"),
+                    );
                 }
             }
         }
@@ -235,9 +259,13 @@ fn kill_orphan_on_port(app: &AppHandle, state: &SidecarState, port: u16) {
 /// image (e.g. `python.exe`) or `None` if the PID isn't found / can't be parsed.
 #[cfg(windows)]
 fn pid_image(pid: &str) -> Option<String> {
-    let out = no_window(
-        Command::new("tasklist").args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"]),
-    )
+    let out = no_window(Command::new("tasklist").args([
+        "/FI",
+        &format!("PID eq {pid}"),
+        "/FO",
+        "CSV",
+        "/NH",
+    ]))
     .output()
     .ok()?;
     let text = String::from_utf8_lossy(&out.stdout);
@@ -248,6 +276,79 @@ fn pid_image(pid: &str) -> Option<String> {
         return None; // tasklist prints "INFO: No tasks..." when the PID is gone
     }
     Some(name.to_string())
+}
+
+#[cfg(windows)]
+#[derive(Debug, Clone)]
+struct ProcessInfo {
+    image: String,
+    metadata: String,
+}
+
+/// Resolve a PID to both image and command/executable metadata. The image gate is
+/// not enough: users can have unrelated Python services on the same dev port.
+#[cfg(windows)]
+fn pid_process_info(pid: &str) -> Option<ProcessInfo> {
+    let image = pid_image(pid)?;
+    let metadata = pid_process_metadata(pid).unwrap_or_default();
+    Some(ProcessInfo { image, metadata })
+}
+
+#[cfg(windows)]
+fn pid_process_metadata(pid: &str) -> Option<String> {
+    if !pid.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    let script = format!(
+        "$p = Get-CimInstance Win32_Process -Filter 'ProcessId = {pid}'; if ($p) {{ $p.ExecutablePath; $p.CommandLine }}"
+    );
+    let out = no_window(Command::new("powershell").args([
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        &script,
+    ]))
+    .output()
+    .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if text.is_empty() {
+        None
+    } else {
+        Some(text)
+    }
+}
+
+#[cfg(windows)]
+fn parrot_process_markers(app: &AppHandle) -> Vec<String> {
+    [sidecar_dir(app), venv_dir(app), data_dir(app)]
+        .into_iter()
+        .map(normalize_path_marker)
+        .collect()
+}
+
+#[cfg(windows)]
+fn normalize_path_marker(path: PathBuf) -> String {
+    normalize_process_text(&path.to_string_lossy())
+}
+
+#[cfg(windows)]
+fn normalize_process_text(text: &str) -> String {
+    text.replace('/', "\\").to_ascii_lowercase()
+}
+
+/// Is this process one Parrot is allowed to force-kill on the port? It must be a
+/// plausible sidecar image AND its command/executable metadata must include one
+/// of Parrot's own paths.
+#[cfg(windows)]
+fn is_parrot_owned_process(info: &ProcessInfo, markers: &[String]) -> bool {
+    if !is_parrot_owned_image(&info.image) {
+        return false;
+    }
+    let metadata = normalize_process_text(&info.metadata);
+    !metadata.is_empty() && markers.iter().any(|marker| metadata.contains(marker))
 }
 
 /// Is this process image one Parrot is allowed to force-kill on the port — the
@@ -403,7 +504,10 @@ fn detect_exit(app: &AppHandle, state: &SidecarState, vars: &mut MonitorVars) ->
             .started_at
             .is_some_and(|t| t.elapsed() >= Duration::from_secs(STARTUP_DEADLINE_SECS));
     if deadline_blown {
-        state.log(app, "[supervisor] sidecar never became healthy within startup deadline; killing");
+        state.log(
+            app,
+            "[supervisor] sidecar never became healthy within startup deadline; killing",
+        );
         if let Some(mut child) = lock(&state.child).take() {
             let _ = child.kill();
             let _ = child.wait(); // release the port before respawning
@@ -443,7 +547,10 @@ fn handle_exit_and_respawn(
 
     let wait = backoff_secs(vars.failures);
     if wait > 0 {
-        eprintln!("[supervisor] restarting sidecar in {wait}s (failure #{})", vars.failures);
+        eprintln!(
+            "[supervisor] restarting sidecar in {wait}s (failure #{})",
+            vars.failures
+        );
         if sleep_unless_shutdown(&state.shutting_down, Duration::from_secs(wait)) {
             return Flow::Break;
         }
@@ -476,7 +583,10 @@ fn handle_exit_and_respawn(
 /// Retry/Clean command (or shutdown). On retry, reset the counters and restart
 /// the loop; on shutdown, break out.
 fn give_up_until_retry(app: &AppHandle, state: &SidecarState, vars: &mut MonitorVars) -> Flow {
-    eprintln!("[supervisor] sidecar failed {}× to start; giving up", vars.failures);
+    eprintln!(
+        "[supervisor] sidecar failed {}× to start; giving up",
+        vars.failures
+    );
     state.failed.store(true, Ordering::SeqCst);
     state.set_stage(app, "failed");
     let _ = app.emit("sidecar-failed", vars.failures);
@@ -493,7 +603,12 @@ fn give_up_until_retry(app: &AppHandle, state: &SidecarState, vars: &mut Monitor
 /// atomically to close the spawn-after-shutdown race. A spawn error is accounted as
 /// a failure and the loop restarts; a child reaped because a quit raced the spawn
 /// breaks the loop.
-fn respawn_sidecar(app: &AppHandle, state: &SidecarState, port: u16, vars: &mut MonitorVars) -> Flow {
+fn respawn_sidecar(
+    app: &AppHandle,
+    state: &SidecarState,
+    port: u16,
+    vars: &mut MonitorVars,
+) -> Flow {
     let child = match spawn_sidecar(app, port) {
         Ok(child) => child,
         Err(e) => {
@@ -588,7 +703,9 @@ const SHUTDOWN_JOIN_TIMEOUT: Duration = Duration::from_secs(10);
 /// child here (so the port is released before exit returns) and joins the
 /// monitor thread (bounded) so no respawn can race teardown.
 pub fn shutdown(app: &AppHandle) {
-    let Some(state) = app.try_state::<SidecarState>() else { return };
+    let Some(state) = app.try_state::<SidecarState>() else {
+        return;
+    };
     state.shutting_down.store(true, Ordering::SeqCst);
 
     // Reap the child ourselves and block on its exit — releases the loopback
@@ -682,10 +799,21 @@ mod tests {
         assert_eq!(resolve_port(), 4123);
 
         std::env::set_var("PARROT_PORT", "not-a-port");
-        assert_eq!(resolve_port(), 3900, "unparseable port falls back to default");
+        assert_eq!(
+            resolve_port(),
+            3900,
+            "unparseable port falls back to default"
+        );
 
         std::env::set_var("PARROT_PORT", "70000");
-        assert_eq!(resolve_port(), 3900, "out-of-range port falls back to default");
+        assert_eq!(
+            resolve_port(),
+            3900,
+            "out-of-range port falls back to default"
+        );
+
+        std::env::set_var("PARROT_PORT", "0");
+        assert_eq!(resolve_port(), 3900, "zero is not a bindable app port");
 
         match prev {
             Some(v) => std::env::set_var("PARROT_PORT", v),
@@ -734,6 +862,31 @@ mod tests {
         assert!(!is_parrot_owned_image("")); // unknown/blank is never ours
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn force_kill_requires_parrot_process_metadata() {
+        let markers = vec![normalize_process_text(
+            r"C:\Users\me\AppData\Roaming\com.parrot.app\parrot_data",
+        )];
+        let parrot = ProcessInfo {
+            image: "python.exe".into(),
+            metadata: r#""C:\Users\me\AppData\Roaming\com.parrot.app\parrot_data\venv\Scripts\python.exe" main.py"#.into(),
+        };
+        let unrelated_python = ProcessInfo {
+            image: "python.exe".into(),
+            metadata: r#""C:\work\other\venv\Scripts\python.exe" -m uvicorn app:app --port 3900"#
+                .into(),
+        };
+        let parrot_node = ProcessInfo {
+            image: "node.exe".into(),
+            metadata: parrot.metadata.clone(),
+        };
+
+        assert!(is_parrot_owned_process(&parrot, &markers));
+        assert!(!is_parrot_owned_process(&unrelated_python, &markers));
+        assert!(!is_parrot_owned_process(&parrot_node, &markers));
+    }
+
     #[test]
     fn ok_health_body_accepts_both_spacings() {
         // The sidecar serializes compact JSON, but JSON parsing is
@@ -741,15 +894,18 @@ mod tests {
         // proxy/middleware reformat) still reads as our own healthy envelope.
         assert!(is_ok_health_body(r#"{"status":"ok"}"#));
         assert!(is_ok_health_body(r#"{"status": "ok"}"#));
-        // Realistic body with extra fields around the marker.
-        assert!(is_ok_health_body(r#"{"status":"ok","version":"0.1.0","port":3900}"#));
+        assert!(!is_ok_health_body(
+            r#"{"status":"ok","version":"0.1.0","port":3900}"#
+        ));
     }
 
     #[test]
     fn ok_health_body_rejects_foreign_and_malformed() {
         // A different app that 200s on the port (the squatter case).
         assert!(!is_ok_health_body(r#"{"status":"error"}"#));
-        assert!(!is_ok_health_body("<html><body>Some other server</body></html>"));
+        assert!(!is_ok_health_body(
+            "<html><body>Some other server</body></html>"
+        ));
         // Empty / junk payloads must not pass.
         assert!(!is_ok_health_body(""));
         assert!(!is_ok_health_body("ok"));
@@ -764,8 +920,12 @@ mod tests {
         // field, or as a nested value) must NOT be mis-attached as the sidecar —
         // only a TOP-LEVEL `status == "ok"` counts. This is the regression the
         // JSON parse fixes vs. the prior raw substring match.
-        assert!(!is_ok_health_body(r#"{"message":"the status:ok page is here"}"#));
-        assert!(!is_ok_health_body(r#"{"status":"degraded","detail":{"status":"ok"}}"#));
+        assert!(!is_ok_health_body(
+            r#"{"message":"the status:ok page is here"}"#
+        ));
+        assert!(!is_ok_health_body(
+            r#"{"status":"degraded","detail":{"status":"ok"}}"#
+        ));
         assert!(!is_ok_health_body(r#"{"health":{"status":"ok"}}"#));
         // Top-level `status` of the wrong JSON type is not the ok string.
         assert!(!is_ok_health_body(r#"{"status":true}"#));

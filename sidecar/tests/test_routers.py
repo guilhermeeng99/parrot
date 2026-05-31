@@ -4,6 +4,9 @@ These assert the exact shapes the Rust supervisor and Svelte UI depend on
 (ipc-contract.md). The model is mocked (conftest), so they run without a GPU.
 """
 
+import tomllib
+from pathlib import Path
+
 from fastapi.testclient import TestClient
 
 from app import config, create_app
@@ -14,6 +17,12 @@ def test_healthz_returns_exact_contract(client):
     assert res.status_code == 200
     # The supervisor polls for exactly this body — nothing more, nothing less.
     assert res.json() == {"status": "ok"}
+
+
+def test_app_version_matches_project_metadata(client):
+    with (Path(__file__).resolve().parents[1] / "pyproject.toml").open("rb") as f:
+        expected = tomllib.load(f)["project"]["version"]
+    assert client.app.version == expected
 
 
 def test_engine_status_shape(client):

@@ -120,9 +120,10 @@ Synthesize speech and stream WAV back. Writes one `generation_history` row. Cont
 **Profile resolution (testable order)**
 
 1. If `profile_id` is given and the row has `is_locked = 1` **and** a `locked_audio_path` → use the locked audio; fill missing `ref_text`/`instruct`/`seed` from the row.
-2. Else if `profile_id` is given → use the row's `ref_audio_path`; fill missing `ref_text`/`instruct`/`seed` from the row.
-3. Else if `ref_audio` file is present → write it to a temp file, use it, delete it after the response.
-4. `language == "Auto"` is converted to `null` before inference when a profile is resolved.
+2. Else if `profile_id` is given and the row has `instruct` -> use the profile's instruct-style path with no reference audio; fill missing `ref_text`/`instruct`/`seed` from the row.
+3. Else if `profile_id` is given -> use the row's `ref_audio_path`; fill missing `ref_text`/`instruct`/`seed` from the row.
+4. Else if `ref_audio` file is present -> write it to a temp file, use it, delete it after the response.
+5. `language == "Auto"` is converted to `null` before inference when a profile is resolved.
 
 **Response** — `200`, `Content-Type: audio/wav`, body is the WAV stream (16 KiB chunks). Metadata rides on headers:
 
@@ -172,7 +173,8 @@ A voice profile is a reusable clone (reference clip + transcript + settings). [v
 | `POST` | `/profiles` | form: `name`*, `ref_audio`* (file), `ref_text`, `instruct`, `language`, `seed` | `{ id, name }` | rolls back the saved audio file if the DB insert fails |
 | `GET` | `/profiles/{id}` | — | `VoiceProfile` | `404` not found |
 | `PUT` | `/profiles/{id}` | json: `name?`, `ref_text?`, `instruct?`, `language?` | full updated `VoiceProfile` | `400` empty name / no editable fields; `404` not found |
-| `GET` | `/profiles/{id}/audio` | — | `audio/wav` file (locked audio if present, else reference) | `404` profile / no audio / file missing on disk |
+| `GET` | `/profiles/{id}/audio` | — | Representative audio file (locked WAV if present, else the source-format reference) | `404` profile / no audio / file missing on disk |
+| `GET` | `/profiles/{id}/audio/original` | — | Original uploaded reference clip in its source format | `404` profile / no original audio / file missing on disk |
 | `GET` | `/profiles/{id}/usage` | — | `{ synth_recent: UsageRow[], synth_total: int }` | — |
 | `POST` | `/profiles/{id}/lock` | form: `history_id`*, `seed?` | `{ locked: true, profile_id, locked_audio_path }` | `404` profile / history / source audio missing |
 | `POST` | `/profiles/{id}/unlock` | — | `{ unlocked: true, profile_id }` | `404` profile not found |
@@ -465,7 +467,7 @@ The browser sandbox can't open files or reveal folders. The Svelte UI calls thes
 
 | `invoke()` name | Args | Returns | Purpose |
 |-----------------|------|---------|---------|
-| `save_audio_dialog` | `{ defaultName: string, audioBytes?: number[] }` | `string \| null` (chosen path, or null if cancelled) | Native "Save As" dialog to export audio. Writes `audioBytes` verbatim and derives the dialog file-type filter from `defaultName`'s extension, so it serves both exports: a **generated** clip (transcoded to MP3 server-side via `GET /history/{id}/audio.mp3`, `.mp3`) and a voice's **original reference** clip (downloaded as-is via `GET /profiles/{id}/audio`, in its source format). |
+| `save_audio_dialog` | `{ defaultName: string, audioBytes?: number[] }` | `string \| null` (chosen path, or null if cancelled) | Native "Save As" dialog to export audio. Writes `audioBytes` verbatim and derives the dialog file-type filter from `defaultName`'s extension, so it serves both exports: a **generated** clip (transcoded to MP3 server-side via `GET /history/{id}/audio.mp3`, `.mp3`) and a voice's **original reference** clip (downloaded as-is via `GET /profiles/{id}/audio/original`, in its source format). |
 | `reveal_in_folder` | `{ path: string }` | `void` | Reveal a file in Windows Explorer. |
 | `get_app_paths` | — | `{ dataDir, outputsDir, voicesDir, dbPath, logPath }` | Resolve `parrot_data/` locations for the UI (e.g. "open data folder"). |
 | `read_log_tail` | `{ source: "backend" \| "tauri", tail?: number }` | `{ lines: string[], path, exists, total_lines }` | Tail a log (`tail` clamped 10–2000, default 300). Implemented + tested for **future use**: the current Settings UI surfaces the backend log by revealing `backend.log` in Explorer (via `reveal_in_folder`), not by calling this. `"backend"` reads `backend.log` (sidecar stdout). `"tauri"` targets `parrot.log`, which is **not yet written** — no Tauri logging plugin is registered, so that source returns `exists: false` until logging is wired (see [architecture.md](./architecture.md) §7). |

@@ -34,6 +34,11 @@ export const setup = { subscribe: store.subscribe };
 
 let unsubscribe: (() => void) | null = null;
 
+function closeDownloadStream(): void {
+  unsubscribe?.();
+  unsubscribe = null;
+}
+
 export async function checkSetup(): Promise<void> {
   store.update((s) => ({ ...s, state: "checking" }));
   try {
@@ -53,14 +58,14 @@ export async function startDownload(): Promise<void> {
   if (!repo) return;
   store.update((s) => ({ ...s, state: "downloading", pct: null, message: undefined }));
 
-  unsubscribe?.();
-  unsubscribe = await subscribeDownload(handleEvent, () => {
-    /* transient EventSource errors are non-fatal; the download keeps running */
-  });
-
   try {
+    closeDownloadStream();
+    unsubscribe = await subscribeDownload(handleEvent, () => {
+      /* transient EventSource errors are non-fatal; the download keeps running */
+    });
     await startDownloadApi(repo);
   } catch (e) {
+    closeDownloadStream();
     const message = errMsg(e);
     store.update((s) => ({
       ...s,
@@ -72,6 +77,7 @@ export async function startDownload(): Promise<void> {
 
 function handleEvent(ev: DownloadEvent) {
   if (ev.phase === "install_error") {
+    closeDownloadStream();
     store.update((s) => ({
       ...s,
       state: looksGated(ev.error ?? "") ? "needs_token" : "download_failed",
@@ -100,8 +106,7 @@ async function verify(): Promise<void> {
   } catch (e) {
     store.update((s) => ({ ...s, state: "download_failed", message: errMsg(e) }));
   } finally {
-    unsubscribe?.();
-    unsubscribe = null;
+    closeDownloadStream();
   }
 }
 

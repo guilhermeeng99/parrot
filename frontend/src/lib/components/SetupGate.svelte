@@ -34,10 +34,10 @@
   }
 </script>
 
-<main class="flex min-h-screen flex-col items-center justify-center bg-deep-space px-6">
+<main class="flex min-h-full flex-col items-center justify-center bg-deep-space px-6">
   <Card class="w-full max-w-md">
     <header class="flex items-center gap-3">
-      <span class="text-heading-lg" aria-hidden="true">🦜</span>
+      <img src="/parrot-128.png" alt="" class="h-10 w-10 rounded-full" />
       <h1 class="text-heading-lg font-display font-bold tracking-tight text-cloud-whisper">Parrot</h1>
     </header>
 

@@ -73,6 +73,31 @@ def test_audio_fetch_serves_reference(client):
     assert res.headers["content-type"] == "audio/wav"
 
 
+def test_original_audio_fetch_keeps_source_format_when_profile_is_locked(client):
+    res = client.post(
+        "/profiles",
+        data={"name": "MP3 source", "ref_text": "source text", "language": "Auto"},
+        files={"ref_audio": ("ref.mp3", b"mp3-source-bytes", "audio/mpeg")},
+    )
+    assert res.status_code == 200, res.text
+    pid = res.json()["id"]
+
+    gen = client.post("/generate", data={"text": "lock me", "profile_id": pid})
+    assert gen.status_code == 200, gen.text
+    lock = client.post(f"/profiles/{pid}/lock", data={"history_id": gen.headers["X-Audio-Id"]})
+    assert lock.status_code == 200, lock.text
+
+    original = client.get(f"/profiles/{pid}/audio/original")
+    assert original.status_code == 200
+    assert original.headers["content-type"] == "audio/mpeg"
+    assert original.content == b"mp3-source-bytes"
+
+    representative = client.get(f"/profiles/{pid}/audio")
+    assert representative.status_code == 200
+    assert representative.headers["content-type"] == "audio/wav"
+    assert representative.content != b"mp3-source-bytes"
+
+
 def test_audio_fetch_missing_file_is_404(client, env):
     pid = make_profile(client)
     # delete the reference file out-of-band
